@@ -13,6 +13,7 @@
         <module>core-llm</module>
         <module>core</module>
         <module>tools-http</module>
+        <module>core-rag</module>
     </modules>
 
     <properties>
