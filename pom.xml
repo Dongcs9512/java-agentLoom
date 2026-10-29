@@ -12,6 +12,7 @@
     <modules>
         <module>core-llm</module>
         <module>core</module>
+        <module>tools-http</module>
     </modules>
 
     <properties>
