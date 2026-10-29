@@ -1,0 +1,11 @@
+server:
+  port: 8080
+
+aia:
+  llm:
+    # OpenAI 兼容接口的 baseUrl（含 /v1 前缀），末尾自动拼 /chat/completions
+    # DeepSeek: https://api.deepseek.com/v1
+    # 通义千问: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # Ollama:   http://localhost:11434/v1
+    base-url: ""
+    api-key: ""
