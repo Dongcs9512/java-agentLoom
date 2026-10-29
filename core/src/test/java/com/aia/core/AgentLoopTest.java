@@ -1,0 +1,158 @@
+package com.aia.core;
+
+import com.aia.llm.ChatMessage;
+import com.aia.llm.ChatMessageRole;
+import com.aia.llm.ChatModel;
+import com.aia.llm.ChatModelCapability;
+import com.aia.llm.ChatRequest;
+import com.aia.llm.ChatResponse;
+import com.aia.llm.ToolCall;
+import com.aia.llm.Usage;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class AgentLoopTest {
+
+    static class FakeChatModel implements ChatModel {
+        private final List<ChatResponse> responses;
+        private final List<ChatRequest> requests = new ArrayList<>();
+        private int index = 0;
+
+        FakeChatModel(List<ChatResponse> responses) {
+            this.responses = responses;
+        }
+
+        @Override
+        public ChatResponse chat(ChatRequest request) {
+            requests.add(request);
+            ChatResponse r = responses.get(Math.min(index, responses.size() - 1));
+            index++;
+            return r;
+        }
+
+        @Override
+        public Set<ChatModelCapability> capabilities() {
+            return Set.of(ChatModelCapability.TOOL_CALLING);
+        }
+    }
+
+    static class FakeTool implements Tool {
+        private final String name;
+        private final ToolResult result;
+        private final RuntimeException error;
+        int invokeCount = 0;
+        ToolInvocation lastInvocation;
+
+        FakeTool(String name, ToolResult result, RuntimeException error) {
+            this.name = name;
+            this.result = result;
+            this.error = error;
+        }
+
+        @Override
+        public String name() {
+            return name;
+        }
+
+        @Override
+        public String description() {
+            return "desc";
+        }
+
+        @Override
+        public Map<String, Object> parameters() {
+            return Map.of();
+        }
+
+        @Override
+        public ToolResult execute(ToolInvocation invocation) {
+            invokeCount++;
+            lastInvocation = invocation;
+            if (error != null) {
+                throw error;
+            }
+            return result;
+        }
+    }
+
+    private static ChatResponse toolCallResponse(String name, Map<String, Object> args) {
+        return new ChatResponse(ChatMessage.assistantWithToolCalls(List.of(new ToolCall("c1", name, args))),
+                "tool_calls", new Usage(1, 1));
+    }
+
+    @Test
+    void runsToolThenReturnsAnswer() {
+        ToolRegistry registry = new ToolRegistry();
+        FakeTool doubleTool = new FakeTool("double", ToolResult.ok("10"), null);
+        registry.register(doubleTool);
+
+        FakeChatModel model = new FakeChatModel(List.of(
+                toolCallResponse("double", Map.of("number", 5)),
+                new ChatResponse(ChatMessage.assistant("结果是 10"), "stop", new Usage(1, 1))));
+
+        String answer = new AgentLoop(model, registry, "sys").run("把5翻倍");
+
+        assertEquals("结果是 10", answer);
+        assertEquals(1, doubleTool.invokeCount);
+        assertEquals(5, doubleTool.lastInvocation.arguments().get("number"));
+        ChatRequest second = model.requests.get(1);
+        assertTrue(second.messages().stream().anyMatch(m ->
+                m.role() == ChatMessageRole.TOOL && "c1".equals(m.toolCallId()) && "10".equals(m.content())));
+    }
+
+    @Test
+    void missingToolFeedsError() {
+        FakeChatModel model = new FakeChatModel(List.of(
+                toolCallResponse("missing", Map.of()),
+                new ChatResponse(ChatMessage.assistant("done"), "stop", new Usage(1, 1))));
+
+        new AgentLoop(model, new ToolRegistry(), "sys").run("x");
+
+        ChatRequest second = model.requests.get(1);
+        assertTrue(second.messages().stream().anyMatch(m ->
+                m.role() == ChatMessageRole.TOOL && "未找到工具: missing".equals(m.content())));
+    }
+
+    @Test
+    void toolExceptionFeedsError() {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new FakeTool("boom", null, new RuntimeException("boom")));
+
+        FakeChatModel model = new FakeChatModel(List.of(
+                toolCallResponse("boom", Map.of()),
+                new ChatResponse(ChatMessage.assistant("done"), "stop", new Usage(1, 1))));
+
+        new AgentLoop(model, registry, "sys").run("x");
+
+        ChatRequest second = model.requests.get(1);
+        assertTrue(second.messages().stream().anyMatch(m ->
+                m.role() == ChatMessageRole.TOOL && "boom".equals(m.content())));
+    }
+
+    @Test
+    void nullContentNoToolCallsReturnsEmpty() {
+        FakeChatModel model = new FakeChatModel(List.of(
+                new ChatResponse(ChatMessage.assistant(null), "stop", new Usage(1, 1))));
+
+        String answer = new AgentLoop(model, new ToolRegistry(), "sys").run("x");
+
+        assertEquals("", answer);
+    }
+
+    @Test
+    void maxIterationsThrows() {
+        FakeChatModel model = new FakeChatModel(List.of(toolCallResponse("t", Map.of())));
+
+        AgentLoop loop = new AgentLoop(model, new ToolRegistry(), "sys", 2);
+
+        assertThrows(IllegalStateException.class, () -> loop.run("x"));
+    }
+}
