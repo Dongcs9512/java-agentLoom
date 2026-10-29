@@ -14,6 +14,7 @@
         <module>core</module>
         <module>tools-http</module>
         <module>core-rag</module>
+        <module>config-jdbc</module>
     </modules>
 
     <properties>
