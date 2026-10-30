@@ -1102,3 +1102,95 @@ sum(rate(agentloom_stage_decision_total{decision="CANNED"}[5m]))
 - **流式请求统计不到 token**：流式响应里没有 usage 字段，只能统计调用次数（`stream=true`）。
   要精确统计得在流结束时补一次计费查询，或改用非流式。
 - **子 agent 的 token 记在主 agent 名下**：`AgentLoop` 只知道自己的模型名，不区分调用来源。
+
+## 20. 工作流编排
+
+前面几节的能力是"零件"，工作流把它们按顺序串起来，并且**可以配置而不改代码**。
+
+### 20.1 定义（当前走配置文件）
+
+```yaml
+agentloom:
+  workflows:
+    items:
+      - id: legal-intake-flow
+        entry-agent: legal-intake        # 接待 agent
+        steps:
+          - id: collect
+            type: collect                # 收集信息
+            slots: [incident, when, location]
+            max-turns: 5                 # 追问上限，到了就带着已有信息往下走
+          - id: dispatch
+            type: dispatch               # 分派（不调模型，走场景路由）
+          - id: answer
+            type: call
+            agent: "@routed"             # 交给分派结果
+```
+
+步骤类型只有四种：
+
+| type | 作用 | 关键字段 |
+|---|---|---|
+| `collect` | 跑接待 agent，直到指定槽位齐了或到轮次上限 | `slots` / `max-turns` |
+| `dispatch` | 按会话内容判断交给谁，不调模型 | — |
+| `call` | 跑指定 agent，产出最终回答 | `agent`（或 `@routed`） |
+| `condition` | 按槽位取值跳转 | `when` / `then` / `otherwise` |
+
+条件语法刻意做得极简，不引入脚本引擎：
+
+```yaml
+- id: check
+  type: condition
+  when: slots.amount > 10000
+  then: handoff        # 跳到步骤 id
+  otherwise: auto
+- id: handoff
+  type: call
+  agent: human-agent
+- id: auto
+  type: call
+  agent: bot-agent
+```
+
+支持 `== != > < >= <= contains`，左边必须是 `slots.<字段名>`。
+
+### 20.2 为什么状态要存在会话里
+
+「收集」这一步需要用户回答，引擎没法自己跑完。所以工作流**跨用户消息推进**：
+
+```
+用户第 1 句 → COLLECT 没齐 → 返回追问，状态存进会话（__wf_step / __wf_turns）
+用户第 2 句 → COLLECT 齐了 → 同一轮里继续 DISPATCH + CALL → 返回最终回答
+```
+
+会话里的 `__` 前缀槽位不会出现在给模型看的提示词里。
+
+### 20.3 配置错误在启动时暴露
+
+`toDefinitions()` 会校验：条件能解析、跳转目标存在、CALL 有 agent、COLLECT 有槽位。
+写错直接启动失败，不会等到线上跑到一半才炸。
+
+单轮推进步数也有上限（20 步），防止条件写成互相跳转的死循环。
+
+### 20.4 接数据库（第二阶段）
+
+当前从 `agentloom.workflows` 读。要改成数据库时，**引擎和运行时都不用动**——
+只要产出同样的 `WorkflowDefinition`：
+
+```sql
+CREATE TABLE workflow_config (
+  id VARCHAR(64) PRIMARY KEY,
+  entry_agent VARCHAR(64),
+  steps TEXT,              -- 与 YAML 同构的 JSON
+  enabled TINYINT DEFAULT 1
+);
+```
+
+然后在 `WorkflowProperties.toDefinitions()` 的调用处换成从 `ConfigRepository` 读即可。
+
+### 20.5 已知限制
+
+- **流式**：工作流涉及多步编排，`/stream` 接口目前整段推送，不逐字。
+  单 agent 路径（不挂工作流）仍然逐字流式。
+- **流程结束后重新开始**：一条会话的流程走完会清空状态，下一条消息重新从第一步开始。
+  如果你需要"结束后继续和同一个专业 agent 聊"，得再加一个"停留"步骤类型。

@@ -9,6 +9,7 @@ import io.github.dongcs9512.agentloom.core.DefaultToolResolver;
 import io.github.dongcs9512.agentloom.core.InMemoryConfigRepository;
 import io.github.dongcs9512.agentloom.core.ToolRegistry;
 import io.github.dongcs9512.agentloom.core.ToolResolver;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowDefinition;
 import io.github.dongcs9512.agentloom.core.obs.MetricsRecorder;
 import io.github.dongcs9512.agentloom.llm.openai.OpenAiCompatibleChatModel;
 import io.github.dongcs9512.agentloom.llm.provider.ProviderPreset;
@@ -107,13 +108,16 @@ public class AgentConfiguration {
                                      ScenarioSettings scenarioSettings,
                                      ScenarioRouterFactory scenarioRouterFactory,
                                      GuardChain agentGuardChain,
-                                     MetricsRecorder metricsRecorder) {
+                                     MetricsRecorder metricsRecorder,
+                                     WorkflowProperties workflowProperties) {
         SessionSupport base = sessionSupport.getIfAvailable(SessionSupport::disabled);
         // 会话模块没配场景路由时，按 aia.scenarios.strategy 组装
         if (!base.hasScenarioRouter() && scenarioSettings.enabled()) {
             base = base.withScenarioRouter(scenarioRouterFactory.create());
         }
+        // 工作流定义在启动时校验，配置写错直接启动失败，而不是等线上跑一半才炸
+        java.util.Map<String, WorkflowDefinition> workflows = workflowProperties.toDefinitions();
         return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver, base,
-                agentGuardChain, metricsRecorder);
+                agentGuardChain, metricsRecorder, workflows);
     }
 }

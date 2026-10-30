@@ -83,7 +83,7 @@ java -cp "examples/minimal-agent/target/classes;$(cat examples/minimal-agent/cp.
 | 接入 | 多供应商 OpenAI 兼容；`Providers.register` 注册自定义；声明式 HTTP 工具对接微服务 |
 | 对话 | 多轮会话 · 上下文压缩（摘要/语义保留/截断）· 检索路由 · 槽位收集 · 子 agent 串行/并行委派 · SSE 流式 |
 | 知识 | 分片 · 向量化 · ES / Redis Vector Set / 内存三种向量库 · 元数据过滤 · 重排 · 检索缓存 |
-| 编排 | 场景分派（关键词 / 向量 / LLM / 级联） |
+| 编排 | 工作流（collect/dispatch/call/condition，配置化）· 场景分派（关键词 / 向量 / LLM / 级联） |
 | 治理 | 工具作用域 · 并发闸门 · 单飞去重 · 限流 · 超时/熔断/降级 · 优雅下线 |
 | 观测 | token 与调用次数、缓存分层命中、分段耗时、分派来源、Prometheus |
 | 评测 | 单轮 15 题 · 多轮 6 组 · 路由 32 题 · 缓存收益 · 回归门禁 |

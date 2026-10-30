@@ -20,6 +20,10 @@ import io.github.dongcs9512.agentloom.core.session.RouteDecision;
 import io.github.dongcs9512.agentloom.core.session.RouteResult;
 import io.github.dongcs9512.agentloom.core.session.Session;
 import io.github.dongcs9512.agentloom.core.session.SlotPromptBuilder;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowDefinition;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowEngine;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowHost;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowResult;
 import io.github.dongcs9512.agentloom.llm.ChatMessage;
 import io.github.dongcs9512.agentloom.llm.ChatModel;
 import io.github.dongcs9512.agentloom.rag.KnowledgeSearchTool;
@@ -40,6 +44,8 @@ public final class AgentRuntime {
     private final SessionSupport sessionSupport;
     private final GuardChain guardChain;
     private final MetricsRecorder metrics;
+    private final Map<String, WorkflowDefinition> workflows;
+    private final WorkflowEngine workflowEngine = new WorkflowEngine();
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory) {
         this(repo, tools, factory, new DefaultToolResolver(), SessionSupport.disabled());
@@ -52,17 +58,23 @@ public final class AgentRuntime {
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport) {
         this(repo, tools, factory, toolResolver, sessionSupport, new GuardChain(List.of()),
-                MetricsRecorder.noop());
+                MetricsRecorder.noop(), Map.of());
     }
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain) {
-        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, MetricsRecorder.noop());
+        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, MetricsRecorder.noop(), Map.of());
     }
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain,
                         MetricsRecorder metrics) {
+        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, metrics, Map.of());
+    }
+
+    public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
+                        ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain,
+                        MetricsRecorder metrics, Map<String, WorkflowDefinition> workflows) {
         this.repo = repo;
         this.tools = tools;
         this.factory = factory;
@@ -70,6 +82,7 @@ public final class AgentRuntime {
         this.sessionSupport = sessionSupport == null ? SessionSupport.disabled() : sessionSupport;
         this.guardChain = guardChain == null ? new GuardChain(List.of()) : guardChain;
         this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
+        this.workflows = workflows == null ? Map.of() : Map.copyOf(workflows);
     }
 
     // ---------- 单轮问答（保持向后兼容） ----------
@@ -85,10 +98,59 @@ public final class AgentRuntime {
     // ---------- 多轮会话 ----------
 
     public ChatReply chat(String agentId, String sessionId, String userMessage) {
+        WorkflowDefinition workflow = workflows.get(agentId);
         // 并发闸门：模型调用是最贵的资源，饱和时快速失败比全部拖到超时好
         return guardChain.execute(new GuardContext(agentId),
                 () -> metrics.measure("agentloom.agent.chat", Map.of("agent", agentId),
-                        () -> doChat(agentId, sessionId, userMessage)));
+                        () -> workflow == null
+                                ? doChat(agentId, sessionId, userMessage)
+                                : doWorkflowChat(workflow, sessionId, userMessage)));
+    }
+
+    /**
+     * 走工作流：由 {@link WorkflowEngine} 按 YAML 里定义的步骤推进，
+     * 状态存在会话里，所以能跨多轮用户消息。
+     */
+    private ChatReply doWorkflowChat(WorkflowDefinition workflow, String sessionId, String userMessage) {
+        Session session = loadOrCreateSession(sessionId, workflow.entryAgent());
+        WorkflowHost host = new WorkflowHost() {
+            @Override
+            public String chat(String targetAgentId, Session targetSession, String message) {
+                AgentConfig config = loadAgent(targetAgentId);
+                boolean collecting = targetAgentId.equals(workflow.entryAgent());
+                return runAgentTurn(config, targetSession, message, collecting);
+            }
+
+            @Override
+            public java.util.Optional<String> route(Session targetSession) {
+                java.util.Optional<String> routed = sessionSupport.hasScenarioRouter()
+                        ? sessionSupport.scenarioRouter().route("", targetSession)
+                        : java.util.Optional.empty();
+                routed.ifPresent(agent -> metrics.count("agentloom.scenario.dispatch",
+                        Map.of("agent", agent, "source", "workflow")));
+                return routed;
+            }
+        };
+
+        WorkflowResult result = workflowEngine.step(workflow, session, userMessage, host);
+        metrics.count("agentloom.workflow.step", Map.of("workflow", workflow.id(),
+                "finished", String.valueOf(result.finished())));
+        if (sessionSupport.hasSession() && !"ephemeral".equals(session.id())) {
+            sessionSupport.store().save(session);
+        }
+        return new ChatReply(result.answer(), sessionId, false);
+    }
+
+    /** 在工作流里跑一轮指定 agent，并把消息记进会话。 */
+    private String runAgentTurn(AgentConfig config, Session session, String userMessage, boolean includeSlotPrompt) {
+        List<Skill> skills = resolveSkills(config.skillNames());
+        AgentLoop loop = buildLoop(config, session, RouteDecision.RETRIEVE, factory.create(config.model()),
+                skills, false);
+        List<ChatMessage> conversation = buildConversation(config, session, loop, userMessage, includeSlotPrompt);
+        String answer = loop.run(conversation);
+        session.addMessage(ChatMessage.user(userMessage));
+        session.addMessage(ChatMessage.assistant(answer));
+        return answer;
     }
 
     private ChatReply doChat(String agentId, String sessionId, String userMessage) {
@@ -106,6 +168,12 @@ public final class AgentRuntime {
     }
 
     public void streamChat(String agentId, String sessionId, String userMessage, Consumer<String> onDelta) {
+        WorkflowDefinition workflow = workflows.get(agentId);
+        if (workflow != null) {
+            // 工作流涉及多步编排，v1 整段推送；逐字流式只在单 agent 路径支持
+            onDelta.accept(chat(agentId, sessionId, userMessage).answer());
+            return;
+        }
         guardChain.execute(new GuardContext(agentId), () ->
                 metrics.measure("agentloom.agent.chat", Map.of("agent", agentId, "stream", "true"), () -> {
                     doStreamChat(agentId, sessionId, userMessage, onDelta);
@@ -322,6 +390,11 @@ public final class AgentRuntime {
 
     private AgentLoop buildLoop(AgentConfig config, Session session, RouteDecision route, ChatModel model,
                                 List<Skill> skills) {
+        return buildLoop(config, session, route, model, skills, true);
+    }
+
+    private AgentLoop buildLoop(AgentConfig config, Session session, RouteDecision route, ChatModel model,
+                                List<Skill> skills, boolean includeDispatchTool) {
         List<Tool> resolved = new ArrayList<>(toolResolver.resolve(config, skills, tools));
         if (route == RouteDecision.DIRECT) {
             // 纯对话路由：拿掉知识库工具，避免模型为寒暄去检索
@@ -329,7 +402,7 @@ public final class AgentRuntime {
         }
         if (session != null && !config.slots().isEmpty()) {
             resolved.add(new RecordSlotTool(session, config.slots()));
-            if (sessionSupport.hasScenarioRouter()) {
+            if (includeDispatchTool && sessionSupport.hasScenarioRouter()) {
                 // 接待类 agent 收集完信息后，由路由把案件分给对应的专业 agent
                 resolved.add(new ScenarioDispatchTool(sessionSupport.scenarioRouter(), session,
                         this::buildSpecialistLoop, metrics));

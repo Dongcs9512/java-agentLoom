@@ -172,3 +172,20 @@ agentloom:
       retrieval-hit-rate: 0.95
       keyword-coverage: 0.85
       pass-rate: 0.90
+
+  # 工作流编排：按步骤推进，状态存在会话里，可跨多轮
+  # 当前用配置文件承载；后续接数据库时产出同样的 WorkflowDefinition 即可
+  workflows:
+    items:
+      - id: legal-intake-flow
+        entry-agent: legal-intake
+        steps:
+          - id: collect
+            type: collect
+            slots: [incident, when, location]
+            max-turns: 5
+          - id: dispatch
+            type: dispatch
+          - id: answer
+            type: call
+            agent: "@routed"
