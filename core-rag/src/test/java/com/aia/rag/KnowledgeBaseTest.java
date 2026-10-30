@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -65,5 +66,44 @@ class KnowledgeBaseTest {
         kb.addDocument("d1", "这是一段用于测试分片的文本内容，长度足够被切分成多个块。");
         kb.deleteDocument("d1");
         assertTrue(kb.search("查询", 100).isEmpty());
+    }
+
+    static class CountingEmbedder implements EmbeddingModel {
+        int singleCalls;
+        int batchCalls;
+
+        @Override
+        public int dimension() {
+            return 2;
+        }
+
+        @Override
+        public float[] embed(String text) {
+            singleCalls++;
+            return new float[]{1, 0};
+        }
+
+        @Override
+        public java.util.List<float[]> embedBatch(java.util.List<String> texts) {
+            batchCalls++;
+            return texts.stream().map(t -> new float[]{1, 0}).toList();
+        }
+    }
+
+    @Test
+    void addDocumentReturnsChunkCount() {
+        int count = kb().addDocument("d1", "这是一段用于测试分片的文本内容，长度足够被切分成多个块。");
+        assertTrue(count > 1, "长文本应被切成多个分片，实际 " + count);
+    }
+
+    @Test
+    void addDocumentEmbedsChunksInOneBatch() {
+        CountingEmbedder embedder = new CountingEmbedder();
+        KnowledgeBase kb = new KnowledgeBase(embedder, new InMemoryVectorStore(2), new TextChunker(), 10, 2);
+
+        kb.addDocument("d1", "这是一段用于测试分片的文本内容，长度足够被切分成多个块。");
+
+        assertEquals(1, embedder.batchCalls);
+        assertEquals(0, embedder.singleCalls);
     }
 }

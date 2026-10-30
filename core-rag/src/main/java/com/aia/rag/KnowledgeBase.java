@@ -22,17 +22,22 @@ public final class KnowledgeBase {
         this.overlap = overlap;
     }
 
-    public void addDocument(String docId, String text) {
+    /**
+     * 切分、向量化并写入一个文档，返回切分出的分片数。
+     */
+    public int addDocument(String docId, String text) {
         List<String> chunks = chunker.chunk(text, chunkSize, overlap);
+        List<float[]> vectors = embedder.embedBatch(chunks);
         List<VectorRecord> records = new ArrayList<>();
         List<String> ids = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             String chunkId = docId + "#" + i;
-            records.add(new VectorRecord(chunkId, chunks.get(i), embedder.embed(chunks.get(i)), Map.of("docId", docId)));
+            records.add(new VectorRecord(chunkId, chunks.get(i), vectors.get(i), Map.of("docId", docId)));
             ids.add(chunkId);
         }
         store.upsert(records);
         docChunks.put(docId, ids);
+        return chunks.size();
     }
 
     public List<SearchHit> search(String query, int topK) {

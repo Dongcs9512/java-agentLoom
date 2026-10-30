@@ -119,6 +119,61 @@ mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
          -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
+### 4.3 向量化模型（OpenAI 兼容 /v1/embeddings）
+
+```java
+EmbeddingModel embedder = new OpenAiCompatibleEmbeddingModel(
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",  // 通义千问；Ollama 用 http://localhost:11434/v1
+    "sk-xxx",
+    "text-embedding-v3",   // Ollama: nomic-embed-text
+    1024,                  // 维度，必须与向量库一致
+    HttpClient.newHttpClient());
+```
+
+`KnowledgeBase.addDocument` 会用 `embedBatch` 一次性向量化全部切片，避免 N 次 HTTP 往返。
+
+### 4.4 让 agent 检索知识库
+
+```java
+KnowledgeSearchTool tool = new KnowledgeSearchTool(kb, 5);
+registry.register(tool);   // 注册后所有 agent 都能调用 search_knowledge
+```
+
+工具名为 `search_knowledge`，参数 `query`（必填）、`topK`（可选），返回
+「序号 + 来源 chunkId + 原文」，模型据此作答。
+
+### 4.5 在 Spring Boot 服务里启用 RAG
+
+`application.yml`：
+
+```yaml
+aia:
+  rag:
+    enabled: true                  # 唯一开关，false 时框架其余功能照常可用
+    embedding:
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api-key: sk-xxx
+      model: text-embedding-v3
+      dimension: 1024
+    es:
+      url: http://192.168.5.15:9200   # 留空则用内存实现（重启丢失）
+      index: aia-kb
+    chunk-size: 500
+    chunk-overlap: 50
+    top-k: 5
+```
+
+启用后自动注册 `search_knowledge` 工具，并暴露接口：
+
+```bash
+# 写入/更新文档（docId 相同则覆盖，分片 id 为 docId#0、docId#1 ...）
+POST /api/kb/documents   {"docId":"refund","text":"..."}   → {"docId":"refund","chunkCount":1}
+# 按 docId 删除整篇文档
+DELETE /api/kb/documents/{docId}
+# 直接检索（调试用）
+POST /api/kb/search      {"query":"退款","topK":3}          → [{id,text,score,metadata}]
+```
+
 ## 5. 弹性降级
 
 ```java

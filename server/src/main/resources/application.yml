@@ -9,3 +9,21 @@ aia:
     # Ollama:   http://localhost:11434/v1
     base-url: ""
     api-key: ""
+  rag:
+    # 为 true 时才装配知识库（未配置向量化服务时保持 false，框架其余功能照常可用）
+    enabled: false
+    embedding:
+      # OpenAI 兼容的向量化接口（末尾自动拼 /embeddings）
+      # 通义千问: https://dashscope.aliyuncs.com/compatible-mode/v1 （模型 text-embedding-v3，维度 1024）
+      # Ollama:   http://localhost:11434/v1 （模型 nomic-embed-text，维度 768）
+      base-url: ""
+      api-key: ""
+      model: text-embedding-v3
+      dimension: 1024
+    es:
+      # 留空则用内存实现（重启丢失，仅适合调试）
+      url: ""
+      index: aia-kb
+    chunk-size: 500
+    chunk-overlap: 50
+    top-k: 5
