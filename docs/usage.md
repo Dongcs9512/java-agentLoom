@@ -52,6 +52,38 @@ registry.register(new HttpTool(cfg));
 
 鉴权：`StaticHeaderAuthenticator` / `JwtAuthenticator`（HS256/RS256）/ `HmacSignatureAuthenticator`。
 
+### 1.5 工具作用域（哪些 agent 能用哪些工具）
+
+注册进 `ToolRegistry` 的工具是**全局池**，具体某个 agent 能看到多少，由 `AgentConfig.toolNames` 决定：
+
+| `toolNames` | 含义 |
+|---|---|
+| `null` | 全部全局工具（兼容旧配置） |
+| `["*"]` | 全部全局工具 |
+| `[]` | 不使用任何全局工具（纯对话 agent） |
+| `["query_order"]` | 白名单，只用这几个；未注册的名字静默忽略 |
+
+agent 选中的 **skill 自带工具**始终并入，不受上面规则限制，同名的只保留一个。
+
+需要按租户、角色或数据库动态分配时，实现 `ToolResolver` 并注入：
+
+```java
+public class TenantToolResolver implements ToolResolver {
+    @Override
+    public List<Tool> resolve(AgentConfig agent, List<Skill> skills, ToolRegistry registry) {
+        Set<String> allowed = loadAllowedToolsForTenant(agent.id());
+        return registry.all().stream().filter(t -> allowed.contains(t.name())).toList();
+    }
+}
+
+new AgentRuntime(repo, registry, factory, new TenantToolResolver());
+```
+
+Spring Boot 里在自定义配置类中定义一个 `ToolResolver` Bean 即可覆盖默认策略
+（`@ConditionalOnMissingBean`）。
+
+排查作用域是否符合预期：`AgentLoop.visibleToolNames()` 返回该 agent 实际可见的工具名。
+
 ## 2. 定义 Skill（提示词 + 打包工具）
 
 ```java

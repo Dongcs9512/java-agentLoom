@@ -3,10 +3,12 @@ package com.aia.server;
 import com.aia.core.AgentConfig;
 import com.aia.core.AgentLoop;
 import com.aia.core.ConfigRepository;
+import com.aia.core.DefaultToolResolver;
 import com.aia.core.Skill;
 import com.aia.core.SkillConfig;
 import com.aia.core.Tool;
 import com.aia.core.ToolRegistry;
+import com.aia.core.ToolResolver;
 import com.aia.llm.ChatModel;
 
 import java.util.List;
@@ -18,11 +20,17 @@ public final class AgentRuntime {
     private final ConfigRepository repo;
     private final ToolRegistry tools;
     private final ChatModelFactory factory;
+    private final ToolResolver toolResolver;
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory) {
+        this(repo, tools, factory, new DefaultToolResolver());
+    }
+
+    public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory, ToolResolver toolResolver) {
         this.repo = repo;
         this.tools = tools;
         this.factory = factory;
+        this.toolResolver = toolResolver;
     }
 
     public String chat(String agentId, String userMessage) {
@@ -40,7 +48,8 @@ public final class AgentRuntime {
                 .orElseThrow(() -> new IllegalArgumentException("agent 不存在: " + agentId));
         ChatModel model = factory.create(config.model());
         List<Skill> skills = resolveSkills(config.skillNames());
-        return new AgentLoop(model, tools, skills, config.systemPrompt());
+        List<Tool> resolvedTools = toolResolver.resolve(config, skills, tools);
+        return new AgentLoop(model, resolvedTools, skills, config.systemPrompt());
     }
 
     private List<Skill> resolveSkills(List<String> skillNames) {

@@ -7,6 +7,7 @@ import com.aia.llm.ChatModelCapability;
 import com.aia.llm.ChatRequest;
 import com.aia.llm.ChatResponse;
 import com.aia.llm.ToolCall;
+import com.aia.llm.ToolDefinition;
 import com.aia.llm.Usage;
 import org.junit.jupiter.api.Test;
 
@@ -154,5 +155,40 @@ class AgentLoopTest {
         AgentLoop loop = new AgentLoop(model, new ToolRegistry(), "sys", 2);
 
         assertThrows(IllegalStateException.class, () -> loop.run("x"));
+    }
+
+    @Test
+    void explicitToolListIsExposedVerbatim() {
+        FakeTool a = new FakeTool("a", ToolResult.ok("x"), null);
+        FakeTool b = new FakeTool("b", ToolResult.ok("y"), null);
+        FakeChatModel model = new FakeChatModel(List.of(
+                new ChatResponse(ChatMessage.assistant("ok"), "stop", new Usage(1, 1))));
+
+        new AgentLoop(model, List.of(a, b), "sys").run("hi");
+
+        assertEquals(List.of("a", "b"),
+                model.requests.get(0).tools().stream().map(ToolDefinition::name).toList());
+    }
+
+    @Test
+    void emptyToolListExposesNoTools() {
+        FakeChatModel model = new FakeChatModel(List.of(
+                new ChatResponse(ChatMessage.assistant("ok"), "stop", new Usage(1, 1))));
+
+        new AgentLoop(model, List.of(), "sys").run("hi");
+
+        assertTrue(model.requests.get(0).tools().isEmpty());
+    }
+
+    @Test
+    void explicitToolListExecutesWithoutRegistry() {
+        FakeTool a = new FakeTool("a", ToolResult.ok("done-a"), null);
+        FakeChatModel model = new FakeChatModel(List.of(
+                toolCallResponse("a", Map.of()),
+                new ChatResponse(ChatMessage.assistant("ok"), "stop", new Usage(1, 1))));
+
+        new AgentLoop(model, List.of(a), "sys").run("hi");
+
+        assertEquals(1, a.invokeCount);
     }
 }

@@ -1,10 +1,13 @@
 package com.aia.server;
 
 import com.aia.core.ConfigRepository;
+import com.aia.core.DefaultToolResolver;
 import com.aia.core.InMemoryConfigRepository;
 import com.aia.core.ToolRegistry;
+import com.aia.core.ToolResolver;
 import com.aia.llm.openai.OpenAiCompatibleChatModel;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -34,9 +37,18 @@ public class AgentConfiguration {
         return modelName -> new OpenAiCompatibleChatModel(baseUrl, apiKey, modelName, HttpClient.newHttpClient());
     }
 
+    /**
+     * 工具作用域策略。想按租户/角色动态分配工具时，在自己的配置类里定义同名 {@link ToolResolver} Bean 覆盖它。
+     */
+    @Bean
+    @ConditionalOnMissingBean(ToolResolver.class)
+    public ToolResolver toolResolver() {
+        return new DefaultToolResolver();
+    }
+
     @Bean
     public AgentRuntime agentRuntime(ConfigRepository configRepository, ToolRegistry toolRegistry,
-                                     ChatModelFactory chatModelFactory) {
-        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory);
+                                     ChatModelFactory chatModelFactory, ToolResolver toolResolver) {
+        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver);
     }
 }

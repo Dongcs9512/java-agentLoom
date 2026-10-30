@@ -23,6 +23,13 @@ public final class ToolRegistry {
         return Optional.ofNullable(tools.get(name));
     }
 
+    /**
+     * 按注册顺序返回全部工具。
+     */
+    public List<Tool> all() {
+        return List.copyOf(tools.values());
+    }
+
     public List<ToolDefinition> toToolDefinitions() {
         List<ToolDefinition> defs = new ArrayList<>();
         for (Tool tool : tools.values()) {
