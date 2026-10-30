@@ -17,6 +17,7 @@
         <module>config-jdbc</module>
         <module>session-store</module>
         <module>server</module>
+        <module>examples/minimal-agent</module>
     </modules>
 
     <properties>

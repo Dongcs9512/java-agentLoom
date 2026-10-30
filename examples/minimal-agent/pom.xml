@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.aia</groupId>
+        <artifactId>ai-agent-framework</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>aia-example-minimal</artifactId>
+    <description>最小可运行示例：不依赖 Spring，直接 new 出 AgentLoop / KnowledgeBase</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aia</groupId>
+            <artifactId>aia-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.aia</groupId>
+            <artifactId>aia-core-llm</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.aia</groupId>
+            <artifactId>aia-core-rag</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>
