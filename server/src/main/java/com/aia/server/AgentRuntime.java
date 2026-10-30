@@ -26,13 +26,21 @@ public final class AgentRuntime {
     }
 
     public String chat(String agentId, String userMessage) {
+        return buildLoop(agentId).run(userMessage);
+    }
+
+    public void streamChat(String agentId, String userMessage, java.util.function.Consumer<String> onDelta) {
+        buildLoop(agentId).stream(userMessage, onDelta);
+    }
+
+    private AgentLoop buildLoop(String agentId) {
         AgentConfig config = repo.loadAgents().stream()
                 .filter(a -> a.id().equals(agentId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("agent 不存在: " + agentId));
         ChatModel model = factory.create(config.model());
         List<Skill> skills = resolveSkills(config.skillNames());
-        return new AgentLoop(model, tools, skills, config.systemPrompt()).run(userMessage);
+        return new AgentLoop(model, tools, skills, config.systemPrompt());
     }
 
     private List<Skill> resolveSkills(List<String> skillNames) {

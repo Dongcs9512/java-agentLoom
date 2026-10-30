@@ -58,4 +58,27 @@ public class AgentController {
         String answer = runtime.chat(agentId, body.getOrDefault("message", ""));
         return Map.of("answer", answer);
     }
+
+    @PostMapping("/chat/{agentId}/stream")
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter chatStream(
+            @PathVariable String agentId, @RequestBody Map<String, String> body) {
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter =
+                new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(0L);
+        String message = body.getOrDefault("message", "");
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                runtime.streamChat(agentId, message, delta -> {
+                    try {
+                        emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event().data(delta));
+                    } catch (Exception e) {
+                        emitter.completeWithError(e);
+                    }
+                });
+                emitter.complete();
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
+    }
 }
