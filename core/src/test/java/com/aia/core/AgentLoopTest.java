@@ -191,4 +191,22 @@ class AgentLoopTest {
 
         assertEquals(1, a.invokeCount);
     }
+
+    @Test
+    void runWithExplicitConversationUsesItVerbatim() {
+        FakeChatModel model = new FakeChatModel(List.of(
+                new ChatResponse(ChatMessage.assistant("ok"), "stop", new Usage(1, 1))));
+        List<ChatMessage> conversation = List.of(
+                ChatMessage.system("历史 system"),
+                ChatMessage.user("第一句"),
+                ChatMessage.assistant("第一答"),
+                ChatMessage.user("第二句"));
+
+        new AgentLoop(model, List.of(), "sys").run(conversation);
+
+        ChatRequest first = model.requests.get(0);
+        assertEquals(4, first.messages().size());
+        assertEquals("历史 system", first.messages().get(0).content());
+        assertEquals("第二句", first.messages().get(3).content());
+    }
 }

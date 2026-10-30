@@ -2,6 +2,7 @@ package com.aia.config;
 
 import com.aia.core.AgentConfig;
 import com.aia.core.SkillConfig;
+import com.aia.core.session.Slot;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JdbcConfigRepositoryTest {
@@ -54,5 +56,19 @@ class JdbcConfigRepositoryTest {
         repo.saveAgent(new AgentConfig("a1", "p", "m", List.of(), List.of(), null, null));
         repo.deleteAgent("a1");
         assertTrue(repo.loadAgents().isEmpty());
+    }
+
+    @Test
+    void slotsRoundTripThroughDatabase() {
+        repo.saveAgent(new AgentConfig("a1", "p", "m", List.of(), List.of(), null, null,
+                List.of(new Slot("incident", "具体是什么事？", true),
+                        new Slot("when", "发生在什么时候？", false))));
+
+        List<Slot> slots = repo.loadAgents().get(0).slots();
+
+        assertEquals(2, slots.size());
+        assertEquals("incident", slots.get(0).name());
+        assertTrue(slots.get(0).required());
+        assertFalse(slots.get(1).required());
     }
 }

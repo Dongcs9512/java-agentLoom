@@ -352,3 +352,122 @@ KnowledgeBase kb = new KnowledgeBase(embedder, store, new TextChunker(), 500, 50
 ```
 
 开了重排后，`SearchHit.score()` 返回的是重排模型的分数，不再是余弦相似度。
+
+## 9. 多轮会话、答案缓存与上下文压缩
+
+### 9.1 会话与记忆
+
+```java
+SessionStore store = new InMemorySessionStore();          // 或 Redis / JDBC / Composite
+SessionSupport support = new SessionSupport(store, null, null, null);
+AgentRuntime runtime = new AgentRuntime(repo, registry, factory, new DefaultToolResolver(), support);
+
+runtime.chat("legal-intake", "u1", "公司把我辞退了");      // 第一轮
+runtime.chat("legal-intake", "u1", "没有书面通知");        // 第二轮自动带上历史
+```
+
+存储选择：
+
+| 实现 | 说明 |
+|---|---|
+| `InMemorySessionStore` | 进程内，重启即丢 |
+| `RedisSessionStore` | HASH + TTL，热数据 |
+| `JdbcSessionStore` | 会话主表 + 消息明细表，可审计 |
+| `CompositeSessionStore` | Redis 热 + 数据库归档双写，读 miss 自动回源 |
+
+### 9.2 上下文压缩
+
+超过 `threshold-tokens` 时触发，三种策略：
+
+| 策略 | 行为 |
+|---|---|
+| `summarize` | 调模型把早期对话压成摘要，保留最近 N 条原文 |
+| `model-select` | 模型同时输出摘要 + 必须逐字保留的消息下标 |
+| `truncate` | 直接丢弃早期消息（零成本兜底） |
+
+三者都可以用 `FallbackContextCompressor` 套起来，主策略抛异常自动退回兜底。
+
+### 9.3 热点问题缓存
+
+```java
+AnswerCache cache = new InMemoryAnswerCache(2000);   // 或 Redis / JDBC / Composite
+```
+
+同一个 agent 下「归一化后相同」的问题（去标点、统一大小写）直接返回缓存答案，
+`ChatReply.fromCache()` 会标记命中。流式接口命中缓存时整段推送，客户端无感。
+
+只有会话的槽位收集已完成时才会写入/读取缓存，避免把「半截案情」的回答复用出去。
+
+### 9.4 检索路由
+
+```java
+RetrievalRouter router = new RuleBasedRetrievalRouter("您好，请问有什么可以帮您？", List.of("谢谢", "再见"));
+```
+
+- 空输入 / 短寒暄 → `CANNED`（固定话术，不调模型）或 `DIRECT`（调模型但不挂知识库工具）
+- 实质问题 → `RETRIEVE`，正常走知识库
+
+### 9.5 配置
+
+```yaml
+aia:
+  session:
+    enabled: true
+    store: composite          # memory / redis / jdbc / composite
+    ttl-seconds: 604800
+    redis: { host: 192.168.5.15, password: xxx }
+  answer-cache:
+    enabled: true
+    store: composite
+    capacity: 2000
+    ttl-seconds: 3600
+  router:
+    chitchat-mode: canned     # canned / model
+    chitchat-reply: 您好，请问有什么可以帮您？
+    extra-chitchat: 谢谢,再见
+  compression:
+    strategy: summarize       # summarize / model-select / truncate
+    threshold-tokens: 3000
+    keep-recent-messages: 8
+    model: deepseek-chat
+```
+
+## 10. 槽位收集（信息采集编排）
+
+`AgentConfig.slots` 声明要收集哪些信息，模型通过 `record_case_info` 工具回写：
+
+```java
+new AgentConfig("legal-intake", "你是接待顾问…", "deepseek-chat",
+    List.of("*"), List.of(), 0.3, 800,
+    List.of(new Slot("incident", "具体是什么事？", true),
+            new Slot("when", "事情发生在什么时候？", true),
+            new Slot("location", "工作地在哪个城市？", true),
+            new Slot("detail", "能简单说说经过吗？", false)));
+```
+
+- 系统提示词里会自动带上「已收集 / 还差什么」，并给出提问话术
+- 工具返回「已记录 X；待收集: …」，模型据此决定继续追问还是给结论
+- 槽位随会话存在，多轮之间自动累积
+
+配置来源两种：写进 agent 配置存 MySQL（`agent_config.slots`），或直接在代码/配置类里构造 `AgentConfig`。
+
+## 11. 法律咨询示例
+
+开启演示数据：
+
+```bash
+java -jar server/target/aia-server-0.1.0-SNAPSHOT.jar --aia.demo.enabled=true
+```
+
+会创建两个 agent 和一份劳动法知识库：
+
+| agent | 职责 |
+|---|---|
+| `legal-intake` | 接待，按槽位收集「什么事 / 什么时候 / 在哪 / 经过」，收齐后委派给律师 |
+| `legal-advisor` | 检索知识库后做法律分析，输出「法律问题 / 依据 / 可主张权益 / 下一步」 |
+
+```bash
+curl -X POST localhost:8080/api/chat/legal-intake \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"u1","message":"公司把我辞退了"}'
+```

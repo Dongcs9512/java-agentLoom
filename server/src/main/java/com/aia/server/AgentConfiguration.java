@@ -8,6 +8,7 @@ import com.aia.core.ToolResolver;
 import com.aia.llm.openai.OpenAiCompatibleChatModel;
 import com.aia.llm.provider.ProviderPreset;
 import com.aia.llm.provider.Providers;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -73,7 +74,9 @@ public class AgentConfiguration {
 
     @Bean
     public AgentRuntime agentRuntime(ConfigRepository configRepository, ToolRegistry toolRegistry,
-                                     ChatModelFactory chatModelFactory, ToolResolver toolResolver) {
-        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver);
+                                     ChatModelFactory chatModelFactory, ToolResolver toolResolver,
+                                     ObjectProvider<SessionSupport> sessionSupport) {
+        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver,
+                sessionSupport.getIfAvailable(SessionSupport::disabled));
     }
 }

@@ -3,6 +3,7 @@ package com.aia.config;
 import com.aia.core.AgentConfig;
 import com.aia.core.ConfigRepository;
 import com.aia.core.SkillConfig;
+import com.aia.core.session.Slot;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -20,6 +21,7 @@ public final class JdbcConfigRepository implements ConfigRepository {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<Slot>> SLOT_LIST = new TypeReference<>() {};
 
     private final DataSource dataSource;
 
@@ -32,9 +34,15 @@ public final class JdbcConfigRepository implements ConfigRepository {
         try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
             st.execute("CREATE TABLE IF NOT EXISTS agent_config (" +
                     "id VARCHAR(64) PRIMARY KEY, system_prompt TEXT, model VARCHAR(128), " +
-                    "tool_names TEXT, skill_names TEXT, temperature DOUBLE, max_tokens INT)");
+                    "tool_names TEXT, skill_names TEXT, temperature DOUBLE, max_tokens INT, slots TEXT)");
             st.execute("CREATE TABLE IF NOT EXISTS skill_config (" +
                     "name VARCHAR(64) PRIMARY KEY, description VARCHAR(255), instructions TEXT, tool_names TEXT)");
+            // 老库没有 slots 列时补上；已存在则忽略
+            try (Statement alter = c.createStatement()) {
+                alter.execute("ALTER TABLE agent_config ADD COLUMN slots TEXT");
+            } catch (SQLException ignored) {
+                // 列已存在
+            }
         } catch (SQLException e) {
             throw new IllegalStateException("初始化配置表失败", e);
         }
@@ -54,7 +62,8 @@ public final class JdbcConfigRepository implements ConfigRepository {
                         parseList(rs.getString("tool_names")),
                         parseList(rs.getString("skill_names")),
                         rs.getObject("temperature") == null ? null : rs.getDouble("temperature"),
-                        rs.getObject("max_tokens") == null ? null : rs.getInt("max_tokens")));
+                        rs.getObject("max_tokens") == null ? null : rs.getInt("max_tokens"),
+                        parseSlots(rs.getString("slots"))));
             }
             return list;
         } catch (SQLException e) {
@@ -92,8 +101,8 @@ public final class JdbcConfigRepository implements ConfigRepository {
                 del.executeUpdate();
             }
             try (PreparedStatement ins = c.prepareStatement(
-                    "INSERT INTO agent_config (id, system_prompt, model, tool_names, skill_names, temperature, max_tokens) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                    "INSERT INTO agent_config (id, system_prompt, model, tool_names, skill_names, temperature, max_tokens, slots) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
                 ins.setString(1, config.id());
                 ins.setString(2, config.systemPrompt());
                 ins.setString(3, config.model());
@@ -109,6 +118,7 @@ public final class JdbcConfigRepository implements ConfigRepository {
                 } else {
                     ins.setInt(7, config.maxTokens());
                 }
+                ins.setString(8, toSlotsJson(config.slots()));
                 ins.executeUpdate();
             }
         } catch (SQLException e) {
@@ -178,6 +188,28 @@ public final class JdbcConfigRepository implements ConfigRepository {
         }
         try {
             return MAPPER.readValue(json, STRING_LIST);
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private String toSlotsJson(List<Slot> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return "[]";
+        }
+        try {
+            return MAPPER.writeValueAsString(slots);
+        } catch (Exception e) {
+            throw new IllegalStateException("序列化槽位失败", e);
+        }
+    }
+
+    private List<Slot> parseSlots(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return MAPPER.readValue(json, SLOT_LIST);
         } catch (Exception e) {
             return List.of();
         }

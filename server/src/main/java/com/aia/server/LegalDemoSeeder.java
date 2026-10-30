@@ -1,0 +1,115 @@
+package com.aia.server;
+
+import com.aia.core.AgentConfig;
+import com.aia.core.ConfigRepository;
+import com.aia.core.ToolRegistry;
+import com.aia.core.session.Slot;
+import com.aia.rag.KnowledgeBase;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 法律咨询演示数据：一个负责接待收集信息的 agent + 一个负责法律分析的 agent，
+ * 外加一份劳动法知识库。仅 {@code aia.demo.enabled=true} 时执行，已存在的数据不会覆盖。
+ */
+@Component
+@ConditionalOnProperty(prefix = "aia.demo", name = "enabled", havingValue = "true")
+public class LegalDemoSeeder implements ApplicationRunner {
+
+    private static final String INTAKE_AGENT = "legal-intake";
+    private static final String ADVISOR_AGENT = "legal-advisor";
+
+    private final ConfigRepository repo;
+    private final ToolRegistry toolRegistry;
+    private final AgentRuntime runtime;
+    private final ObjectProvider<KnowledgeBase> knowledgeBase;
+
+    public LegalDemoSeeder(ConfigRepository repo, ToolRegistry toolRegistry, AgentRuntime runtime,
+                           ObjectProvider<KnowledgeBase> knowledgeBase) {
+        this.repo = repo;
+        this.toolRegistry = toolRegistry;
+        this.runtime = runtime;
+        this.knowledgeBase = knowledgeBase;
+    }
+
+    @Override
+    public void run(ApplicationArguments args) {
+        seedAgents();
+        seedKnowledge();
+    }
+
+    private void seedAgents() {
+        if (!agentExists(ADVISOR_AGENT)) {
+            repo.saveAgent(new AgentConfig(
+                    ADVISOR_AGENT,
+                    "你是资深劳动法律师。回答必须依据 search_knowledge 检索到的法条与实务要点，"
+                            + "先检索再分析；检索不到就明确说明不确定，不要编造法条。"
+                            + "输出结构：涉及的法律问题、适用依据、可主张的权益、下一步建议。",
+                    "deepseek-chat", List.of("*"), List.of(), 0.2, 800, List.of()));
+        }
+
+        if (!agentExists(INTAKE_AGENT)) {
+            repo.saveAgent(new AgentConfig(
+                    INTAKE_AGENT,
+                    "你是法律咨询的接待顾问。用户来咨询劳动纠纷时，先按【信息收集】逐项了解情况，"
+                            + "一次只问一到两项，语气自然亲切，不要像填表。"
+                            + "信息收集齐全后，调用 delegate_to_legal-advisor 把完整情况交给专业律师分析，"
+                            + "再把律师的结论用通俗的话转述给用户。",
+                    "deepseek-chat", List.of("*"), List.of(), 0.3, 800,
+                    List.of(
+                            new Slot("incident", "具体是什么事？比如被辞退、欠薪、加班费、工伤", true),
+                            new Slot("when", "事情大概发生在什么时候？", true),
+                            new Slot("location", "工作地在哪个城市？", true),
+                            new Slot("detail", "能简单说说经过吗？比如有没有签合同、有没有书面通知", false))));
+        }
+
+        if (toolRegistry.get("delegate_to_" + ADVISOR_AGENT).isEmpty()) {
+            toolRegistry.register(runtime.subAgentTool(ADVISOR_AGENT, "把整理好的劳动纠纷案情交给专业律师做法律分析"));
+        }
+    }
+
+    private void seedKnowledge() {
+        KnowledgeBase kb = knowledgeBase.getIfAvailable();
+        if (kb == null) {
+            return;
+        }
+        ingest(kb, "labor-contract", "劳动合同法第十条：建立劳动关系应当订立书面劳动合同。"
+                + "用人单位自用工之日起超过一个月不满一年未与劳动者订立书面劳动合同的，"
+                + "应当向劳动者每月支付二倍的工资，最多支付十一个月。");
+        ingest(kb, "labor-dismissal", "劳动合同法第八十七条：用人单位违反本法规定解除或者终止劳动合同的，"
+                + "应当依照经济补偿标准的二倍向劳动者支付赔偿金。经济补偿按劳动者在本单位工作的年限，"
+                + "每满一年支付一个月工资，六个月以上不满一年的按一年计算，不满六个月的支付半个月工资。");
+        ingest(kb, "labor-arbitration", "劳动争议调解仲裁法第二十七条：劳动争议申请仲裁的时效期间为一年，"
+                + "从当事人知道或者应当知道其权利被侵害之日起计算。"
+                + "劳动关系存续期间因拖欠劳动报酬发生争议的，不受一年时效限制；"
+                + "但劳动关系终止的，应当自终止之日起一年内提出。");
+        ingest(kb, "labor-overtime", "劳动法第四十四条：安排劳动者延长工作时间的，支付不低于工资的百分之一百五十的工资报酬；"
+                + "休息日安排工作又不能安排补休的，支付不低于百分之二百的工资报酬；"
+                + "法定休假日安排工作的，支付不低于百分之三百的工资报酬。");
+        ingest(kb, "labor-wages", "劳动合同法第三十条：用人单位应当按照劳动合同约定和国家规定，"
+                + "向劳动者及时足额支付劳动报酬。用人单位拖欠或者未足额支付劳动报酬的，"
+                + "劳动者可以依法向当地人民法院申请支付令，人民法院应当依法发出支付令。");
+    }
+
+    private void ingest(KnowledgeBase kb, String docId, String text) {
+        if (kb.search(text.substring(0, Math.min(12, text.length())), 1).stream()
+                .noneMatch(hit -> docId.equals(hit.metadata().get("docId")))) {
+            kb.addDocument(docId, text);
+        }
+    }
+
+    private boolean agentExists(String agentId) {
+        return repo.loadAgents().stream().anyMatch(a -> agentId.equals(a.id()));
+    }
+
+    /** 演示用的 agent 列表，便于文档与测试引用。 */
+    public static Map<String, String> agents() {
+        return Map.of(INTAKE_AGENT, "接待与信息收集", ADVISOR_AGENT, "法律分析");
+    }
+}

@@ -63,9 +63,14 @@ public final class AgentLoop {
     }
 
     public String run(String userMessage) {
-        List<ChatMessage> messages = new ArrayList<>();
-        messages.add(ChatMessage.system(effectiveSystemPrompt()));
-        messages.add(ChatMessage.user(userMessage));
+        return run(List.of(ChatMessage.system(effectiveSystemPrompt()), ChatMessage.user(userMessage)));
+    }
+
+    /**
+     * 用一段完整的对话（含 system 消息）跑一轮，多轮会话场景下由调用方拼好历史再传进来。
+     */
+    public String run(List<ChatMessage> conversation) {
+        List<ChatMessage> messages = new ArrayList<>(conversation);
 
         for (int i = 0; i < maxIterations; i++) {
             ChatRequest request = new ChatRequest(List.copyOf(messages), allToolDefinitions(),
@@ -87,9 +92,11 @@ public final class AgentLoop {
     }
 
     public void stream(String userMessage, Consumer<String> onDelta) {
-        List<ChatMessage> messages = new ArrayList<>();
-        messages.add(ChatMessage.system(effectiveSystemPrompt()));
-        messages.add(ChatMessage.user(userMessage));
+        stream(List.of(ChatMessage.system(effectiveSystemPrompt()), ChatMessage.user(userMessage)), onDelta);
+    }
+
+    public void stream(List<ChatMessage> conversation, Consumer<String> onDelta) {
+        List<ChatMessage> messages = new ArrayList<>(conversation);
 
         for (int i = 0; i < maxIterations; i++) {
             List<ToolCall> toolCalls = new ArrayList<>();
@@ -135,7 +142,10 @@ public final class AgentLoop {
         return merged;
     }
 
-    private String effectiveSystemPrompt() {
+    /**
+     * 系统提示词，已并入技能说明。使用 {@link #run(List)} 自己拼历史时，应把它作为首条 system 消息。
+     */
+    public String effectiveSystemPrompt() {
         if (skills.isEmpty()) {
             return systemPrompt;
         }

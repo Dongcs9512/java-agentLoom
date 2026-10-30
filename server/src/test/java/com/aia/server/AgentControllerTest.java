@@ -69,8 +69,19 @@ class AgentControllerTest {
     void chatReturnsAnswer() throws Exception {
         mockMvc.perform(post("/api/agents").contentType("application/json").content(AGENT_JSON))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/chat/a1").contentType("application/json").content("{\"message\":\"hi\"}"))
+        mockMvc.perform(post("/api/chat/a1").contentType("application/json")
+                        .content("{\"message\":\"我想咨询劳动纠纷的处理流程\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value("hi"));
+    }
+
+    @Test
+    void greetingIsAnsweredWithCannedReplyWithoutCallingModel() throws Exception {
+        mockMvc.perform(post("/api/agents").contentType("application/json").content(AGENT_JSON))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/chat/a1").contentType("application/json").content("{\"message\":\"你好\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("法律咨询助手")));
     }
 }

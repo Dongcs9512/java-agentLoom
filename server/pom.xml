@@ -55,6 +55,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.aia</groupId>
+            <artifactId>aia-session-store</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

@@ -52,3 +52,38 @@ aia:
     chunk-size: 500
     chunk-overlap: 50
     top-k: 5
+  # 多轮会话：会话存储 + 答案缓存 + 检索路由 + 上下文压缩
+  session:
+    enabled: true
+    # memory / redis / jdbc / composite（Redis 热存储 + 数据库归档双写）
+    store: memory
+    ttl-seconds: 604800
+    redis:
+      host: ""
+      port: 6379
+      password: ""
+      key-prefix: "aia:session:"
+  answer-cache:
+    # 开启后同一 agent 下归一化相同的问题直接返回缓存答案
+    enabled: true
+    store: memory
+    capacity: 2000
+    ttl-seconds: 3600
+    redis:
+      host: ""
+      port: 6379
+      password: ""
+      key-prefix: "aia:answer:"
+  router:
+    # 寒暄/空输入不走知识库；canned=固定话术，model=交给模型（不挂知识库工具）
+    enabled: true
+    chitchat-mode: canned
+    chitchat-reply: 您好，我是法律咨询助手，请问有什么可以帮您？
+    extra-chitchat: 谢谢,再见,好的
+  compression:
+    # summarize / model-select / truncate
+    enabled: true
+    strategy: summarize
+    threshold-tokens: 3000
+    keep-recent-messages: 8
+    model: deepseek-chat
