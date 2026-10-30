@@ -15,6 +15,7 @@
         <module>tools-http</module>
         <module>core-rag</module>
         <module>config-jdbc</module>
+        <module>session-store</module>
         <module>server</module>
     </modules>
 
