@@ -3,6 +3,7 @@ package com.aia.rag.redis;
 import com.aia.core.session.QuestionNormalizer;
 import com.aia.rag.RetrievalCache;
 import com.aia.rag.SearchHit;
+import com.aia.rag.VersionedRetrievalCache;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import redis.clients.jedis.DefaultJedisClientConfig;
@@ -23,7 +24,9 @@ import java.util.Optional;
  *
  * <p>代价是每次命中多一跳网络（局域网约 0.3~1ms），所以生产上通常和内存缓存组成两级。
  */
-public final class RedisRetrievalCache implements RetrievalCache, AutoCloseable {
+public final class RedisRetrievalCache implements VersionedRetrievalCache, AutoCloseable {
+
+    private static final String VERSION_SUFFIX = "__ver";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<SearchHit>> HIT_LIST = new TypeReference<>() {};
@@ -92,6 +95,16 @@ public final class RedisRetrievalCache implements RetrievalCache, AutoCloseable 
     }
 
     @Override
+    public long version() {
+        try (Jedis jedis = pool.getResource()) {
+            String raw = jedis.get(versionKey());
+            return raw == null ? 0L : Long.parseLong(raw);
+        } catch (RuntimeException e) {
+            return 0L;
+        }
+    }
+
+    @Override
     public void clear() {
         try (Jedis jedis = pool.getResource()) {
             String cursor = ScanParams.SCAN_POINTER_START;
@@ -109,7 +122,15 @@ public final class RedisRetrievalCache implements RetrievalCache, AutoCloseable 
             if (!batch.isEmpty()) {
                 jedis.del(batch.toArray(new String[0]));
             }
+            // 递增版本号，通知其它实例清掉自己的本地缓存
+            jedis.incr(versionKey());
+        } catch (RuntimeException e) {
+            // 清缓存失败不影响主流程
         }
+    }
+
+    private String versionKey() {
+        return keyPrefix + VERSION_SUFFIX;
     }
 
     @Override

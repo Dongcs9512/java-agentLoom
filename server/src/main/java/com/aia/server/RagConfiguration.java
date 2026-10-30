@@ -183,7 +183,8 @@ public class RagConfiguration {
             @Value("${aia.rag.cache.redis.host:}") String cacheRedisHost,
             @Value("${aia.rag.cache.redis.port:6379}") int cacheRedisPort,
             @Value("${aia.rag.cache.redis.password:}") String cacheRedisPassword,
-            @Value("${aia.rag.cache.redis.key-prefix:aia:retrieval:}") String cacheRedisPrefix) {
+            @Value("${aia.rag.cache.redis.key-prefix:aia:retrieval:}") String cacheRedisPrefix,
+            @Value("${aia.rag.cache.version-check-ms:2000}") long cacheVersionCheckMs) {
         InMemoryRetrievalCache local = new InMemoryRetrievalCache(cacheCapacity, cacheTtlSeconds);
         String type = cacheStore == null ? "memory" : cacheStore.trim().toLowerCase(java.util.Locale.ROOT);
         return switch (type) {
@@ -191,7 +192,8 @@ public class RagConfiguration {
                     cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds);
             case "composite" -> new CompositeRetrievalCache(local,
                     new RedisRetrievalCache(requireCacheRedis(cacheRedisHost), cacheRedisPort,
-                            cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds));
+                            cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds),
+                    cacheVersionCheckMs);
             default -> local;
         };
     }
