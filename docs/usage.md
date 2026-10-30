@@ -82,12 +82,41 @@ String answer = loop.run("我的订单 123 什么时候发货？");
 ```java
 KnowledgeBase kb = new KnowledgeBase(
     embedder,                     // 实现 EmbeddingModel（向量化）
-    new InMemoryVectorStore(dim), // 或后续的 ES/Redis 实现
+    vectorStore,                  // 见 4.1 内存 / 4.2 Elasticsearch 实现
     new TextChunker(), 500, 50);
 kb.addDocument("doc1", "产品说明……");
 List<SearchHit> hits = kb.search("怎么退货", 5);
 kb.updateChunk("doc1#0", "新内容");   // 按 chunkId 增量更新
 kb.deleteDocument("doc1");
+```
+
+### 4.1 内存实现（默认，单机测试用）
+
+```java
+VectorStore vectorStore = new InMemoryVectorStore(embedder.dimension());
+```
+
+### 4.2 Elasticsearch 实现（生产，8.x）
+
+```java
+VectorStore vectorStore = new ElasticsearchVectorStore(
+    "http://192.168.5.15:9200",   // ES 地址
+    "kb",                          // 索引名
+    embedder.dimension(),          // 向量维度
+    HttpClient.newHttpClient());
+```
+
+- 内部用 REST 直连（无 ES 官方客户端依赖），自动按维度建索引，mapping 固定为
+  `text`（文本）/ `dense_vector`（cosine 相似度）/ `flattened`（metadata）。
+- `upsert`/`delete` 走 `_bulk` 且带 `refresh=wait_for`，返回时文档即可被 `search` 检索。
+- `capabilities()` 含 `METADATA_FILTER` + `BATCH_UPSERT`：`search` 的 `filter`
+  会转成 `metadata.<key>` 的精确 `term` 过滤（`docId` 等）。
+- 真实 ES 冒烟测试（默认跳过，不影响常规构建）：
+
+```bash
+mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
+         -Daia.es.url=http://192.168.5.15:9200 \
+         -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 ## 5. 弹性降级
