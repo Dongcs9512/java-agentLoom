@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public final class AgentLoop {
 
@@ -61,6 +62,33 @@ public final class AgentLoop {
 
             messages.add(message);
             for (ToolCall call : message.toolCalls()) {
+                ToolResult result = executeTool(call);
+                messages.add(ChatMessage.tool(call.id(), result.content()));
+            }
+        }
+        throw new IllegalStateException("AgentLoop 达到最大迭代次数: " + maxIterations);
+    }
+
+    public void stream(String userMessage, Consumer<String> onDelta) {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system(effectiveSystemPrompt()));
+        messages.add(ChatMessage.user(userMessage));
+
+        for (int i = 0; i < maxIterations; i++) {
+            List<ToolCall> toolCalls = new ArrayList<>();
+            model.stream(new ChatRequest(List.copyOf(messages), allToolDefinitions(), new ChatModelConfig(null, null)), chunk -> {
+                if (chunk.content() != null) {
+                    onDelta.accept(chunk.content());
+                }
+                if (chunk.toolCalls() != null) {
+                    toolCalls.addAll(chunk.toolCalls());
+                }
+            });
+            if (toolCalls.isEmpty()) {
+                return;
+            }
+            messages.add(ChatMessage.assistantWithToolCalls(toolCalls));
+            for (ToolCall call : toolCalls) {
                 ToolResult result = executeTool(call);
                 messages.add(ChatMessage.tool(call.id(), result.content()));
             }
