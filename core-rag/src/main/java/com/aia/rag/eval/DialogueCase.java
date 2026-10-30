@@ -13,7 +13,8 @@ public record DialogueCase(
         String agentId,
         List<Turn> turns,
         List<String> requiredSlots,
-        List<String> finalExpectedKeywords) {
+        List<String> finalExpectedKeywords,
+        String expectedScenario) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Turn(String user, List<String> expectKeywords) {
@@ -26,5 +27,9 @@ public record DialogueCase(
         turns = turns == null ? List.of() : List.copyOf(turns);
         requiredSlots = requiredSlots == null ? List.of() : List.copyOf(requiredSlots);
         finalExpectedKeywords = finalExpectedKeywords == null ? List.of() : List.copyOf(finalExpectedKeywords);
+    }
+
+    public boolean expectsScenario() {
+        return expectedScenario != null && !expectedScenario.isBlank();
     }
 }

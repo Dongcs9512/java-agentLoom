@@ -145,4 +145,60 @@ class AgentRuntimeSessionTest {
 
         assertEquals(2, model.requests.get(1).messages().size(), "单轮模式只带 system + 当前问题");
     }
+
+    @Test
+    void requiredSlotsCompleteDispatchesToSpecialistDeterministically() {
+        InMemorySessionStore store = new InMemorySessionStore();
+        Session existing = new Session("s1", "intake");
+        existing.putSlot("incident", "公司欠薪三个月");
+        store.save(existing);
+
+        ScriptedModel intakeModel = new ScriptedModel(List.of(answer("接待回答")));
+        ScriptedModel specialistModel = new ScriptedModel(List.of(answer("专业律师分析")));
+
+        InMemoryConfigRepository repo = new InMemoryConfigRepository();
+        repo.saveAgent(new AgentConfig("intake", "接待", "intake-model", List.of("*"), List.of(), null, null,
+                List.of(new Slot("incident", "什么事？", true))));
+        repo.saveAgent(new AgentConfig("specialist", "律师", "specialist-model", List.of("*"), List.of(),
+                null, null, List.of()));
+
+        AgentRuntime runtime = new AgentRuntime(repo, new ToolRegistry(), name ->
+                "specialist-model".equals(name) ? specialistModel : intakeModel,
+                new com.aia.core.DefaultToolResolver(),
+                new SessionSupport(store, null, null, null, (text, session) -> java.util.Optional.of("specialist")));
+
+        String result = runtime.chat("intake", "s1", "那我该怎么办").answer();
+
+        assertEquals("专业律师分析", result);
+        assertTrue(intakeModel.requests.isEmpty(), "必填齐了应直接交给专业 agent，不再走接待流程");
+        assertEquals("specialist", store.load("s1").orElseThrow().slot("__scenario"));
+    }
+
+    @Test
+    void dispatchHappensOnlyOncePerSession() {
+        InMemorySessionStore store = new InMemorySessionStore();
+        Session existing = new Session("s1", "intake");
+        existing.putSlot("incident", "公司欠薪");
+        store.save(existing);
+
+        ScriptedModel intakeModel = new ScriptedModel(List.of(answer("接待回答")));
+        ScriptedModel specialistModel = new ScriptedModel(List.of(answer("专业律师分析")));
+
+        InMemoryConfigRepository repo = new InMemoryConfigRepository();
+        repo.saveAgent(new AgentConfig("intake", "接待", "intake-model", List.of("*"), List.of(), null, null,
+                List.of(new Slot("incident", "什么事？", true))));
+        repo.saveAgent(new AgentConfig("specialist", "律师", "specialist-model", List.of("*"), List.of(),
+                null, null, List.of()));
+
+        AgentRuntime runtime = new AgentRuntime(repo, new ToolRegistry(), name ->
+                "specialist-model".equals(name) ? specialistModel : intakeModel,
+                new com.aia.core.DefaultToolResolver(),
+                new SessionSupport(store, null, null, null, (text, session) -> java.util.Optional.of("specialist")));
+
+        runtime.chat("intake", "s1", "那我该怎么办");
+        runtime.chat("intake", "s1", "还有别的办法吗");
+
+        assertEquals(1, specialistModel.requests.size(), "只在首次分派时调用专业 agent");
+        assertEquals(1, intakeModel.requests.size(), "分派之后应回到接待 agent 处理后续问题");
+    }
 }

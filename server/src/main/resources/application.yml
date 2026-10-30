@@ -87,6 +87,18 @@ aia:
     threshold-tokens: 3000
     keep-recent-messages: 8
     model: deepseek-chat
+  # 场景路由：接待 agent 收集完信息后，按内容确定性分派给对应专业 agent
+  scenarios:
+    enabled: true
+    default-agent: legal-labor
+    rules:
+      # 关键词后加 *N 表示权重，具体领域词权重高，压过「辞退」「赔偿」这类泛化词
+      - agent: legal-welfare
+        keywords: 社保*3,社会保险*3,公积金*3,工伤*3,产假*2,孕期*2,哺乳期*2,年假*2
+      - agent: legal-contract
+        keywords: 竞业*3,保密*2,违约金*2,试用期*2,无固定期限*2
+      - agent: legal-labor
+        keywords: 辞退,解雇,开除,欠薪*2,拖欠工资*2,加班费*2,经济补偿,赔偿金,违法解除*2
   # 固定评测集：POST /api/eval/run 触发，衡量检索命中率与答案关键词覆盖
   eval:
     enabled: false

@@ -4,6 +4,7 @@ import com.aia.core.AgentConfig;
 import com.aia.core.AgentLoop;
 import com.aia.core.ConfigRepository;
 import com.aia.core.DefaultToolResolver;
+import com.aia.core.ScenarioDispatchTool;
 import com.aia.core.Skill;
 import com.aia.core.SkillConfig;
 import com.aia.core.SubAgentTool;
@@ -163,10 +164,42 @@ public final class AgentRuntime {
             }
         }
 
-        List<Skill> skills = resolveSkills(config.skillNames());
-        AgentLoop loop = buildLoop(config, session, route.decision(), factory.create(config.model()), skills);
-        List<ChatMessage> conversation = buildConversation(config, session, loop, userMessage);
+        // 必填信息已齐且还没分派过 → 确定性交给专业 agent，不依赖模型主动调用工具
+        AgentLoop loop = tryScenarioDispatch(config, session, userMessage);
+        boolean includeSlotPrompt = loop == null;
+        if (loop == null) {
+            List<Skill> skills = resolveSkills(config.skillNames());
+            loop = buildLoop(config, session, route.decision(), factory.create(config.model()), skills);
+        }
+        List<ChatMessage> conversation = buildConversation(config, session, loop, userMessage, includeSlotPrompt);
         return new PreparedTurn(config, session, route, null, loop, conversation, cacheable);
+    }
+
+    /**
+     * @return 分派成功时返回专业 agent 的循环；否则返回 null，由调用方走常规流程
+     */
+    private AgentLoop tryScenarioDispatch(AgentConfig config, Session session, String userMessage) {
+        if (!sessionSupport.hasScenarioRouter() || config.slots().isEmpty()) {
+            return null;
+        }
+        if (!session.slot(ScenarioDispatchTool.SCENARIO_SLOT).isBlank()) {
+            return null; // 本次会话已经分派过
+        }
+        boolean requiredAllFilled = SlotPromptBuilder.missing(config.slots(), session).stream()
+                .noneMatch(com.aia.core.session.Slot::required);
+        if (!requiredAllFilled) {
+            return null;
+        }
+        Optional<String> target = sessionSupport.scenarioRouter().route(userMessage, session);
+        if (target.isEmpty()) {
+            return null;
+        }
+        AgentLoop specialist = buildSpecialistLoop(target.get());
+        if (specialist == null) {
+            return null;
+        }
+        session.putSlot(ScenarioDispatchTool.SCENARIO_SLOT, target.get());
+        return specialist;
     }
 
     private Session loadOrCreateSession(String sessionId, String agentId) {
@@ -191,7 +224,7 @@ public final class AgentRuntime {
     }
 
     private List<ChatMessage> buildConversation(AgentConfig config, Session session, AgentLoop loop,
-                                                String userMessage) {
+                                                String userMessage, boolean includeSlotPrompt) {
         String summary = session.summary();
         if (sessionSupport.hasCompressor() && !session.messages().isEmpty()) {
             CompressedContext compressed = sessionSupport.compressor().compress(summary, session.messages());
@@ -203,8 +236,20 @@ public final class AgentRuntime {
         }
 
         StringBuilder system = new StringBuilder(loop.effectiveSystemPrompt());
-        if (!config.slots().isEmpty()) {
+        if (includeSlotPrompt && !config.slots().isEmpty()) {
             system.append(SlotPromptBuilder.build(config.slots(), session));
+        }
+        if (!includeSlotPrompt) {
+            // 分派给专业 agent 时，把接待阶段收集到的案情一并带上
+            StringBuilder caseInfo = new StringBuilder();
+            session.slots().forEach((name, value) -> {
+                if (!name.startsWith("__")) {
+                    caseInfo.append("- ").append(name).append("：").append(value).append('\n');
+                }
+            });
+            if (!caseInfo.isEmpty()) {
+                system.append("\n\n【接待阶段收集的案情】\n").append(caseInfo);
+            }
         }
         if (summary != null && !summary.isBlank()) {
             system.append("\n\n【此前对话摘要】\n").append(summary);
@@ -238,8 +283,23 @@ public final class AgentRuntime {
         }
         if (session != null && !config.slots().isEmpty()) {
             resolved.add(new RecordSlotTool(session, config.slots()));
+            if (sessionSupport.hasScenarioRouter()) {
+                // 接待类 agent 收集完信息后，由路由把案件分给对应的专业 agent
+                resolved.add(new ScenarioDispatchTool(sessionSupport.scenarioRouter(), session,
+                        specialistId -> buildSpecialistLoop(specialistId)));
+            }
         }
         return new AgentLoop(model, resolved, skills, config.systemPrompt());
+    }
+
+    private AgentLoop buildSpecialistLoop(String agentId) {
+        Optional<AgentConfig> specialist = repo.loadAgents().stream()
+                .filter(a -> a.id().equals(agentId))
+                .findFirst();
+        if (specialist.isEmpty()) {
+            return null;
+        }
+        return buildLoop(specialist.get(), null, RouteDecision.RETRIEVE);
     }
 
     private List<Skill> resolveSkills(List<String> skillNames) {

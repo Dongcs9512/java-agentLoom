@@ -73,10 +73,20 @@ public class AgentConfiguration {
     }
 
     @Bean
+    public ScenarioSettings scenarioSettings(org.springframework.core.env.Environment environment) {
+        return ScenarioSettings.from(environment);
+    }
+
+    @Bean
     public AgentRuntime agentRuntime(ConfigRepository configRepository, ToolRegistry toolRegistry,
                                      ChatModelFactory chatModelFactory, ToolResolver toolResolver,
-                                     ObjectProvider<SessionSupport> sessionSupport) {
-        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver,
-                sessionSupport.getIfAvailable(SessionSupport::disabled));
+                                     ObjectProvider<SessionSupport> sessionSupport,
+                                     ScenarioSettings scenarioSettings) {
+        SessionSupport base = sessionSupport.getIfAvailable(SessionSupport::disabled);
+        // 会话模块没配场景路由时，从 aia.scenarios.* 兜底解析
+        if (!base.hasScenarioRouter() && scenarioSettings.enabled()) {
+            base = base.withScenarioRouter(scenarioSettings.toRouter());
+        }
+        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver, base);
     }
 }

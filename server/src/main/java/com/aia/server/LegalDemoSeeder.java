@@ -15,27 +15,36 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 法律咨询演示数据：一个负责接待收集信息的 agent + 一个负责法律分析的 agent，
+ * 法律咨询演示数据：一个接待 agent（收集信息 + 按场景分派）、三个专业律师 agent，
  * 外加一份劳动法知识库。仅 {@code aia.demo.enabled=true} 时执行，已存在的数据不会覆盖。
  */
 @Component
 @ConditionalOnProperty(prefix = "aia.demo", name = "enabled", havingValue = "true")
 public class LegalDemoSeeder implements ApplicationRunner {
 
-    private static final String INTAKE_AGENT = "legal-intake";
-    private static final String ADVISOR_AGENT = "legal-advisor";
+    public static final String INTAKE_AGENT = "legal-intake";
+    public static final String LABOR_AGENT = "legal-labor";
+    public static final String CONTRACT_AGENT = "legal-contract";
+    public static final String WELFARE_AGENT = "legal-welfare";
+
+    private static final String LAWYER_PROMPT =
+            "你是资深劳动法律师。回答必须依据 search_knowledge 检索到的法条与实务要点，"
+                    + "先检索再分析；检索不到就明确说明不确定，不要编造法条。"
+                    + "输出结构：涉及的法律问题、适用依据、可主张的权益、下一步建议。";
 
     private final ConfigRepository repo;
     private final ToolRegistry toolRegistry;
     private final AgentRuntime runtime;
     private final ObjectProvider<KnowledgeBase> knowledgeBase;
+    private final ScenarioSettings scenarioSettings;
 
     public LegalDemoSeeder(ConfigRepository repo, ToolRegistry toolRegistry, AgentRuntime runtime,
-                           ObjectProvider<KnowledgeBase> knowledgeBase) {
+                           ObjectProvider<KnowledgeBase> knowledgeBase, ScenarioSettings scenarioSettings) {
         this.repo = repo;
         this.toolRegistry = toolRegistry;
         this.runtime = runtime;
         this.knowledgeBase = knowledgeBase;
+        this.scenarioSettings = scenarioSettings;
     }
 
     @Override
@@ -45,23 +54,13 @@ public class LegalDemoSeeder implements ApplicationRunner {
     }
 
     private void seedAgents() {
-        if (!agentExists(ADVISOR_AGENT)) {
-            repo.saveAgent(new AgentConfig(
-                    ADVISOR_AGENT,
-                    "你是资深劳动法律师。回答必须依据 search_knowledge 检索到的法条与实务要点，"
-                            + "先检索再分析；检索不到就明确说明不确定，不要编造法条。"
-                            + "输出结构：涉及的法律问题、适用依据、可主张的权益、下一步建议。",
-                    "deepseek-chat", List.of("*"), List.of(), 0.2, 800, List.of()));
-        }
+        seedAgent(LABOR_AGENT, LAWYER_PROMPT + "你专注劳动争议：辞退、欠薪、加班费、经济补偿与赔偿金。");
+        seedAgent(CONTRACT_AGENT, LAWYER_PROMPT + "你专注劳动合同与竞业限制：试用期、违约金、保密与竞业协议效力。");
+        seedAgent(WELFARE_AGENT, LAWYER_PROMPT + "你专注社保与工伤：社会保险缴纳、工伤认定、女职工三期保护、年休假。");
 
         if (!agentExists(INTAKE_AGENT)) {
             repo.saveAgent(new AgentConfig(
-                    INTAKE_AGENT,
-                    "你是法律咨询的接待顾问。用户来咨询劳动纠纷时，先按【信息收集】逐项了解情况，"
-                            + "一次只问一到两项，语气自然亲切，不要像填表。"
-                            + "信息收集齐全后，调用 delegate_to_legal-advisor 把完整情况交给专业律师分析，"
-                            + "再把律师的结论用通俗的话转述给用户。",
-                    "deepseek-chat", List.of("*"), List.of(), 0.3, 800,
+                    INTAKE_AGENT, intakePrompt(), "deepseek-chat", List.of("*"), List.of(), 0.3, 800,
                     List.of(
                             new Slot("incident", "具体是什么事？比如被辞退、欠薪、加班费、工伤", true),
                             new Slot("when", "事情大概发生在什么时候？", true),
@@ -69,9 +68,27 @@ public class LegalDemoSeeder implements ApplicationRunner {
                             new Slot("detail", "能简单说说经过吗？比如有没有签合同、有没有书面通知", false))));
         }
 
-        if (toolRegistry.get("delegate_to_" + ADVISOR_AGENT).isEmpty()) {
-            toolRegistry.register(runtime.subAgentTool(ADVISOR_AGENT, "把整理好的劳动纠纷案情交给专业律师做法律分析"));
+        if (!scenarioSettings.enabled() && toolRegistry.get("delegate_to_" + LABOR_AGENT).isEmpty()) {
+            toolRegistry.register(runtime.subAgentTool(LABOR_AGENT, "把整理好的劳动争议案情交给专业律师做法律分析"));
         }
+    }
+
+    private String intakePrompt() {
+        String delegation = scenarioSettings.enabled()
+                ? "信息收集齐全后，调用 delegate_to_specialist 把完整情况交出去，系统会自动匹配对应的专业律师。"
+                : "信息收集齐全后，调用 delegate_to_" + LABOR_AGENT + " 把完整情况交给专业律师分析。";
+        return "你是法律咨询的接待顾问。用户来咨询时，先按【信息收集】逐项了解情况，"
+                + "一次只问一到两项，语气自然亲切，不要像填表。"
+                + delegation
+                + "最后把律师的结论用通俗的话转述给用户。";
+    }
+
+    private void seedAgent(String id, String systemPrompt) {
+        if (agentExists(id)) {
+            return;
+        }
+        repo.saveAgent(new AgentConfig(id, systemPrompt, "deepseek-chat", List.of("*"), List.of(), 0.2, 800,
+                List.of()));
     }
 
     private void seedKnowledge() {
@@ -110,6 +127,10 @@ public class LegalDemoSeeder implements ApplicationRunner {
 
     /** 演示用的 agent 列表，便于文档与测试引用。 */
     public static Map<String, String> agents() {
-        return Map.of(INTAKE_AGENT, "接待与信息收集", ADVISOR_AGENT, "法律分析");
+        return Map.of(
+                INTAKE_AGENT, "接待与信息收集",
+                LABOR_AGENT, "劳动争议（辞退/欠薪/加班费）",
+                CONTRACT_AGENT, "合同与竞业限制",
+                WELFARE_AGENT, "社保与工伤");
     }
 }

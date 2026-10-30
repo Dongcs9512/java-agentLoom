@@ -40,6 +40,7 @@ public class EvalService {
     private final ConfigRepository repo;
     private final ToolRegistry toolRegistry;
     private final ChatModelFactory chatModelFactory;
+    private final ScenarioSettings scenarioSettings;
     private final AgentRuntime evalRuntime;
     private final int defaultTopK;
 
@@ -48,11 +49,13 @@ public class EvalService {
 
     public EvalService(ObjectProvider<KnowledgeBase> knowledgeBase, ConfigRepository repo,
                        ToolRegistry toolRegistry, ChatModelFactory chatModelFactory,
+                       ScenarioSettings scenarioSettings,
                        @Value("${aia.eval.top-k:5}") int defaultTopK) {
         this.knowledgeBase = knowledgeBase;
         this.repo = repo;
         this.toolRegistry = toolRegistry;
         this.chatModelFactory = chatModelFactory;
+        this.scenarioSettings = scenarioSettings;
         // 单轮评测用独立运行时：不带会话与答案缓存
         this.evalRuntime = new AgentRuntime(repo, toolRegistry, chatModelFactory);
         this.defaultTopK = defaultTopK;
@@ -93,7 +96,8 @@ public class EvalService {
         InMemorySessionStore store = new InMemorySessionStore();
         AgentRuntime runtime = new AgentRuntime(repo, toolRegistry, chatModelFactory, new DefaultToolResolver(),
                 new SessionSupport(store, null,
-                        new RuleBasedRetrievalRouter("您好，请问有什么可以帮您？", List.of()), null));
+                        new RuleBasedRetrievalRouter("您好，请问有什么可以帮您？", List.of()), null,
+                        scenarioSettings.enabled() ? scenarioSettings.toRouter() : null));
         String sessionId = "eval-" + dialogue.id();
 
         List<DialogueResult.DialogueTurnResult> turns = new ArrayList<>();
@@ -108,11 +112,12 @@ public class EvalService {
         List<String> filled = dialogue.requiredSlots().stream()
                 .filter(slot -> !session.slot(slot).isBlank())
                 .toList();
+        String routed = session.slot(com.aia.core.ScenarioDispatchTool.SCENARIO_SLOT);
         // 覆盖率按整段对话算：分析往往在中间某轮就给出了，最后一轮可能只是追问
         double answerCoverage = DialogueEvaluator
                 .scoreTurn("", transcript.toString(), dialogue.finalExpectedKeywords()).keywordCoverage();
         return DialogueResult.of(dialogue, turns, dialogue.requiredSlots(), filled,
-                answerCoverage, KEYWORD_THRESHOLD);
+                answerCoverage, KEYWORD_THRESHOLD, routed.isBlank() ? null : routed);
     }
 
     private EvalDataset prepare(String datasetName, boolean ingest) {

@@ -170,27 +170,85 @@
     {
       "id": "labor-dismissal-full",
       "agentId": "legal-intake",
+      "expectedScenario": "legal-labor",
       "requiredSlots": ["incident", "when", "location"],
       "finalExpectedKeywords": ["违法解除", "仲裁", "2N"],
-      "note": "接待 agent 逐轮收集信息，最后委派律师给出分析",
+      "note": "违法辞退：收集信息 → 分派劳动争议律师",
       "turns": [
         { "user": "公司把我辞退了", "expectKeywords": ["事"] },
-        { "user": "上周五口头让我走的，没有书面通知", "expectKeywords": ["城市", "哪里"] },
+        { "user": "上周五口头让我走的，没有书面通知", "expectKeywords": ["城市"] },
         { "user": "在杭州，签了三年合同，干了两年半", "expectKeywords": ["经过", "合同"] },
-        { "user": "就是突然说公司决定让我走，没说原因", "expectKeywords": ["赔偿", "仲裁"] }
+        { "user": "就是突然说公司决定让我走，没说原因", "expectKeywords": [] }
       ]
     },
     {
       "id": "wage-arrears-full",
       "agentId": "legal-intake",
+      "expectedScenario": "legal-labor",
       "requiredSlots": ["incident", "when", "location"],
       "finalExpectedKeywords": ["仲裁", "工资", "支付令"],
-      "note": "欠薪场景：收集信息后应给出仲裁与支付令建议",
+      "note": "欠薪：收集信息 → 分派劳动争议律师",
       "turns": [
         { "user": "公司拖欠我三个月工资了", "expectKeywords": ["什么时候"] },
-        { "user": "从今年七月开始就没发", "expectKeywords": ["城市", "哪里"] },
+        { "user": "从今年七月开始就没发", "expectKeywords": ["城市"] },
         { "user": "在深圳，公司还在正常经营", "expectKeywords": ["工资"] },
-        { "user": "我每个月八千，有工资条和聊天记录", "expectKeywords": ["仲裁"] }
+        { "user": "我每个月八千，有工资条和聊天记录", "expectKeywords": [] }
+      ]
+    },
+    {
+      "id": "overtime-full",
+      "agentId": "legal-intake",
+      "expectedScenario": "legal-labor",
+      "requiredSlots": ["incident", "when", "location"],
+      "finalExpectedKeywords": ["加班费", "工资", "仲裁"],
+      "note": "加班费：应给出倍数标准与举证建议",
+      "turns": [
+        { "user": "公司天天让我加班到晚上十点，从来不给加班费", "expectKeywords": ["什么时候"] },
+        { "user": "从今年三月开始的", "expectKeywords": ["城市"] },
+        { "user": "在上海，互联网公司", "expectKeywords": ["记录", "证据", "考勤"] },
+        { "user": "周末也经常要上班，也没有补休", "expectKeywords": [] }
+      ]
+    },
+    {
+      "id": "non-compete-full",
+      "agentId": "legal-intake",
+      "expectedScenario": "legal-contract",
+      "requiredSlots": ["incident", "when", "location"],
+      "finalExpectedKeywords": ["竞业", "补偿", "二年"],
+      "note": "竞业限制：应说明补偿、期限与适用范围",
+      "turns": [
+        { "user": "公司让我签了竞业限制协议", "expectKeywords": ["什么时候"] },
+        { "user": "2023年3月入职的时候一起签的", "expectKeywords": ["城市"] },
+        { "user": "在北京，我做的是技术岗", "expectKeywords": ["补偿"] },
+        { "user": "现在离职了，公司说不会给我任何补偿", "expectKeywords": [] }
+      ]
+    },
+    {
+      "id": "social-insurance-full",
+      "agentId": "legal-intake",
+      "expectedScenario": "legal-welfare",
+      "requiredSlots": ["incident", "when", "location"],
+      "finalExpectedKeywords": ["无效", "社保", "经济补偿"],
+      "note": "自愿放弃社保：承诺无效，可据此解除并主张补偿",
+      "turns": [
+        { "user": "公司让我签自愿放弃社保的承诺书", "expectKeywords": ["什么时候"] },
+        { "user": "今年三月入职第一天就让我签了", "expectKeywords": ["城市"] },
+        { "user": "在成都，做销售", "expectKeywords": ["社保"] },
+        { "user": "工资里也确实没扣过社保的钱", "expectKeywords": [] }
+      ]
+    },
+    {
+      "id": "work-injury-full",
+      "agentId": "legal-intake",
+      "expectedScenario": "legal-welfare",
+      "requiredSlots": ["incident", "when", "location"],
+      "finalExpectedKeywords": ["工伤", "三十天", "一年"],
+      "note": "工伤：单位 30 日、个人 1 年的申报时限",
+      "turns": [
+        { "user": "上班时手被机器压伤了", "expectKeywords": ["什么时候"] },
+        { "user": "前天上午", "expectKeywords": ["城市"] },
+        { "user": "在苏州的工厂", "expectKeywords": ["工伤"] },
+        { "user": "公司说让我自己去看，不给报工伤", "expectKeywords": [] }
       ]
     }
   ]
