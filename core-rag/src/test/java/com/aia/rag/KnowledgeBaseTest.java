@@ -3,6 +3,7 @@ package com.aia.rag;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -105,5 +106,74 @@ class KnowledgeBaseTest {
 
         assertEquals(1, embedder.batchCalls);
         assertEquals(0, embedder.singleCalls);
+    }
+
+    static class RecordingStore implements VectorStore {
+        private final VectorStore delegate;
+        int lastTopK;
+
+        RecordingStore(VectorStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void upsert(List<VectorRecord> records) {
+            delegate.upsert(records);
+        }
+
+        @Override
+        public List<SearchHit> search(VectorQuery query) {
+            lastTopK = query.topK();
+            return delegate.search(query);
+        }
+
+        @Override
+        public void delete(List<String> ids) {
+            delegate.delete(ids);
+        }
+
+        @Override
+        public void update(List<VectorRecord> records) {
+            delegate.update(records);
+        }
+
+        @Override
+        public Set<VectorStoreCapability> capabilities() {
+            return delegate.capabilities();
+        }
+    }
+
+    @Test
+    void rerankReordersResultsAndTrimsToTopK() {
+        RecordingStore store = new RecordingStore(new InMemoryVectorStore(2));
+        // 重排模型把候选里文本含「发货」的排到最前
+        RerankModel rerank = (query, documents, topN) -> {
+            List<RerankResult> results = new java.util.ArrayList<>();
+            for (int i = 0; i < documents.size(); i++) {
+                results.add(new RerankResult(i, documents.get(i).contains("发货") ? 0.99 : 0.1));
+            }
+            results.sort((a, b) -> Double.compare(b.score(), a.score()));
+            return results.subList(0, Math.min(topN, results.size()));
+        };
+        KnowledgeBase kb = new KnowledgeBase(new FakeEmbedder(), store, new TextChunker(), 500, 50, rerank);
+        kb.addDocument("refund", "退款政策：签收后 7 天内可无理由退款。");
+        kb.addDocument("shipping", "发货说明：工作日 48 小时内发出。");
+
+        List<SearchHit> hits = kb.search("政策", 1);
+
+        assertEquals(1, hits.size());
+        assertEquals("shipping#0", hits.get(0).id());
+        assertTrue(store.lastTopK > 1, "粗召回应放大数量，实际 " + store.lastTopK);
+    }
+
+    @Test
+    void withoutRerankUsesExactTopK() {
+        RecordingStore store = new RecordingStore(new InMemoryVectorStore(2));
+        KnowledgeBase kb = new KnowledgeBase(new FakeEmbedder(), store, new TextChunker(), 500, 50);
+        kb.addDocument("refund", "退款政策：签收后 7 天内可无理由退款。");
+
+        kb.search("政策", 3);
+
+        assertEquals(3, store.lastTopK);
     }
 }

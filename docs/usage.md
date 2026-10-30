@@ -153,13 +153,21 @@ mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
 
 ### 4.3 向量化模型（OpenAI 兼容 /v1/embeddings）
 
+直接用供应商预设，不用记 baseUrl 和维度：
+
+```java
+ProviderPreset preset = Providers.require("siliconflow");   // 或 dashscope / openai / ollama
+EmbeddingModel embedder = new OpenAiCompatibleEmbeddingModel(
+    preset.baseUrl(), "sk-xxx", preset.embeddingModel(),
+    preset.embeddingDimension(), HttpClient.newHttpClient());
+```
+
+也可以手动指定：
+
 ```java
 EmbeddingModel embedder = new OpenAiCompatibleEmbeddingModel(
-    "https://dashscope.aliyuncs.com/compatible-mode/v1",  // 通义千问；Ollama 用 http://localhost:11434/v1
-    "sk-xxx",
-    "text-embedding-v3",   // Ollama: nomic-embed-text
-    1024,                  // 维度，必须与向量库一致
-    HttpClient.newHttpClient());
+    "https://dashscope.aliyuncs.com/compatible-mode/v1", "sk-xxx",
+    "text-embedding-v3", 1024, HttpClient.newHttpClient());
 ```
 
 `KnowledgeBase.addDocument` 会用 `embedBatch` 一次性向量化全部切片，避免 N 次 HTTP 往返。
@@ -183,10 +191,11 @@ aia:
   rag:
     enabled: true                  # 唯一开关，false 时框架其余功能照常可用
     embedding:
-      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      provider: siliconflow        # 选供应商，下面三项留空即用它的预设
+      base-url: ""
       api-key: sk-xxx
-      model: text-embedding-v3
-      dimension: 1024
+      model: ""
+      dimension: 0
     es:
       url: http://192.168.5.15:9200   # 留空则用内存实现（重启丢失）
       index: aia-kb
@@ -264,3 +273,51 @@ registry.register(runtime.subAgentTool("billing", "处理账单、退款、发�
 - 天然支持多级嵌套；委派深度由 `SubAgentTool` 的 ThreadLocal 计数兜底，超过上限（默认 3）返回错误，
   避免 A→B→A 互相委派把 token 烧光。
 - 谁能委派谁，同样由第 1.5 节的工具作用域控制：把 `delegate_to_billing` 写进某个 agent 的 `toolNames` 即可。
+
+## 8. 模型供应商与功能模型适配
+
+所有模型都走 **OpenAI 兼容协议**，所以一个适配器就能覆盖各家平台，差别只在 baseUrl、模型名和维度。
+内置预设见 `com.aia.llm.provider.Providers`：
+
+| provider | baseUrl | 默认对话模型 | 默认向量模型（维度） | 默认重排模型 |
+|---|---|---|---|---|
+| `deepseek` | api.deepseek.com/v1 | deepseek-chat | 无 | 无 |
+| `dashscope` | dashscope.aliyuncs.com/compatible-mode/v1 | qwen-plus | text-embedding-v3 (1024) | 无 |
+| `siliconflow` | api.siliconflow.cn/v1 | Qwen/Qwen2.5-7B-Instruct | Qwen/Qwen3-Embedding-0.6B (1024) | BAAI/bge-reranker-v2-m3 |
+| `openai` | api.openai.com/v1 | gpt-4o-mini | text-embedding-3-small (1536) | 无 |
+| `ollama` | localhost:11434/v1 | qwen2.5 | nomic-embed-text (768) | 无 |
+
+接入新供应商（比如自建网关、Jina、Cohere）：
+
+```java
+Providers.register(new ProviderPreset(
+    "my-gateway", "https://llm.my.com/v1", "gpt-4o", "bge-m3", 1024, "bge-reranker-v2-m3"));
+```
+
+之后 `aia.llm.provider: my-gateway` / `aia.rag.embedding.provider: my-gateway` 就能直接选它。
+不想用预设时，任何一项都可以显式覆盖（`base-url` / `model` / `dimension` 填了就以填的为准）。
+
+### 8.1 重排（Rerank）
+
+检索准确率不够时开重排：先按 `topK × 4` 粗召回，再用重排模型收敛到 `topK`。
+
+```yaml
+aia:
+  rag:
+    rerank:
+      enabled: true
+      provider: ""     # 留空则沿用 embedding 的供应商、base-url 和 api-key
+      base-url: ""
+      api-key: ""
+      model: ""        # 留空则用供应商预设，如 BAAI/bge-reranker-v2-m3
+```
+
+代码里等价于给 `KnowledgeBase` 多传一个 `RerankModel`：
+
+```java
+RerankModel rerank = new OpenAiCompatibleRerankModel(
+    "https://api.siliconflow.cn/v1", "sk-xxx", "BAAI/bge-reranker-v2-m3", HttpClient.newHttpClient());
+KnowledgeBase kb = new KnowledgeBase(embedder, store, new TextChunker(), 500, 50, rerank);
+```
+
+开了重排后，`SearchHit.score()` 返回的是重排模型的分数，不再是余弦相似度。

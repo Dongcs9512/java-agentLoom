@@ -20,7 +20,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "aia.rag.enabled=true")
+@SpringBootTest(properties = {
+        "aia.rag.enabled=true",
+        "aia.rag.embedding.provider=siliconflow"
+})
 @AutoConfigureMockMvc
 class KnowledgeControllerTest {
 

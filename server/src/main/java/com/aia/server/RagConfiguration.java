@@ -1,14 +1,19 @@
 package com.aia.server;
 
 import com.aia.core.ToolRegistry;
+import com.aia.llm.provider.ProviderPreset;
+import com.aia.llm.provider.Providers;
 import com.aia.rag.ElasticsearchVectorStore;
 import com.aia.rag.EmbeddingModel;
 import com.aia.rag.InMemoryVectorStore;
 import com.aia.rag.KnowledgeBase;
 import com.aia.rag.KnowledgeSearchTool;
+import com.aia.rag.RerankModel;
 import com.aia.rag.TextChunker;
 import com.aia.rag.VectorStore;
 import com.aia.rag.openai.OpenAiCompatibleEmbeddingModel;
+import com.aia.rag.openai.OpenAiCompatibleRerankModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -23,16 +28,19 @@ import java.net.http.HttpClient;
 @ConditionalOnProperty(prefix = "aia.rag", name = "enabled", havingValue = "true")
 public class RagConfiguration {
 
+    @Value("${aia.rag.embedding.provider:}")
+    private String embeddingProvider;
+
     @Value("${aia.rag.embedding.base-url:}")
     private String embeddingBaseUrl;
 
     @Value("${aia.rag.embedding.api-key:}")
     private String embeddingApiKey;
 
-    @Value("${aia.rag.embedding.model:text-embedding-v3}")
+    @Value("${aia.rag.embedding.model:}")
     private String embeddingModel;
 
-    @Value("${aia.rag.embedding.dimension:1024}")
+    @Value("${aia.rag.embedding.dimension:0}")
     private int dimension;
 
     @Value("${aia.rag.es.url:}")
@@ -50,10 +58,74 @@ public class RagConfiguration {
     @Value("${aia.rag.top-k:5}")
     private int topK;
 
+    @Value("${aia.rag.rerank.provider:}")
+    private String rerankProvider;
+
+    @Value("${aia.rag.rerank.base-url:}")
+    private String rerankBaseUrl;
+
+    @Value("${aia.rag.rerank.api-key:}")
+    private String rerankApiKey;
+
+    @Value("${aia.rag.rerank.model:}")
+    private String rerankModelName;
+
+    /**
+     * 向量化模型。优先用显式配置的 base-url / model / dimension，
+     * 留空的项从 {@code aia.rag.embedding.provider} 指向的供应商预设里取。
+     */
     @Bean
     public EmbeddingModel embeddingModel() {
-        return new OpenAiCompatibleEmbeddingModel(embeddingBaseUrl, embeddingApiKey, embeddingModel, dimension,
-                HttpClient.newHttpClient());
+        String baseUrl = resolvedEmbeddingBaseUrl();
+        String model = !embeddingModel.isBlank() ? embeddingModel : presetOf(embeddingProvider)
+                .map(ProviderPreset::embeddingModel).orElse("");
+        int dim = dimension > 0 ? dimension : presetOf(embeddingProvider)
+                .map(ProviderPreset::embeddingDimension).orElse(0);
+
+        if (baseUrl.isBlank() || model.isBlank()) {
+            throw new IllegalStateException(
+                    "未配置向量化服务：请设置 aia.rag.embedding.provider（可选 "
+                            + String.join(", ", Providers.all().stream().map(ProviderPreset::name).toList())
+                            + "），或显式填写 aia.rag.embedding.base-url 与 model");
+        }
+        if (dim <= 0) {
+            throw new IllegalStateException("未配置向量维度：请设置 aia.rag.embedding.dimension");
+        }
+        return new OpenAiCompatibleEmbeddingModel(baseUrl, embeddingApiKey, model, dim, HttpClient.newHttpClient());
+    }
+
+    /**
+     * 重排模型。默认沿用向量化的供应商与 key，只覆盖 rerank 自己的配置项。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "aia.rag.rerank", name = "enabled", havingValue = "true")
+    public RerankModel rerankModel() {
+        String providerName = rerankProvider.isBlank() ? embeddingProvider : rerankProvider;
+        String baseUrl = !rerankBaseUrl.isBlank() ? rerankBaseUrl : resolvedEmbeddingBaseUrl();
+        String apiKey = !rerankApiKey.isBlank() ? rerankApiKey : embeddingApiKey;
+        String model = !rerankModelName.isBlank() ? rerankModelName
+                : presetOf(providerName).map(ProviderPreset::rerankModel).orElse("");
+
+        if (baseUrl.isBlank() || model.isBlank()) {
+            throw new IllegalStateException(
+                    "未配置重排服务：请设置 aia.rag.rerank.provider（如 siliconflow），"
+                            + "或显式填写 aia.rag.rerank.base-url 与 model");
+        }
+        return new OpenAiCompatibleRerankModel(baseUrl, apiKey, model, HttpClient.newHttpClient());
+    }
+
+    private String resolvedEmbeddingBaseUrl() {
+        return !embeddingBaseUrl.isBlank() ? embeddingBaseUrl
+                : presetOf(embeddingProvider).map(ProviderPreset::baseUrl).orElse("");
+    }
+
+    private java.util.Optional<ProviderPreset> presetOf(String name) {
+        return Providers.byName(name).or(() -> {
+            if (name != null && !name.isBlank()) {
+                Providers.require(name);   // 供应商名写错时直接报错，比运行时才暴露要好
+            }
+            return java.util.Optional.empty();
+        });
     }
 
     @Bean
@@ -66,8 +138,10 @@ public class RagConfiguration {
     }
 
     @Bean
-    public KnowledgeBase knowledgeBase(EmbeddingModel embeddingModel, VectorStore vectorStore) {
-        return new KnowledgeBase(embeddingModel, vectorStore, new TextChunker(), chunkSize, chunkOverlap);
+    public KnowledgeBase knowledgeBase(EmbeddingModel embeddingModel, VectorStore vectorStore,
+                                       ObjectProvider<RerankModel> rerankModelProvider) {
+        return new KnowledgeBase(embeddingModel, vectorStore, new TextChunker(), chunkSize, chunkOverlap,
+                rerankModelProvider.getIfAvailable());
     }
 
     /**

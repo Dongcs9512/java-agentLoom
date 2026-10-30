@@ -6,6 +6,8 @@ import com.aia.core.InMemoryConfigRepository;
 import com.aia.core.ToolRegistry;
 import com.aia.core.ToolResolver;
 import com.aia.llm.openai.OpenAiCompatibleChatModel;
+import com.aia.llm.provider.ProviderPreset;
+import com.aia.llm.provider.Providers;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,11 +19,28 @@ import java.net.http.HttpClient;
 @Configuration
 public class AgentConfiguration {
 
+    @Value("${aia.llm.provider:}")
+    private String provider;
+
     @Value("${aia.llm.base-url:}")
     private String baseUrl;
 
     @Value("${aia.llm.api-key:}")
     private String apiKey;
+
+    /**
+     * 实际使用的 OpenAI 兼容 baseUrl：显式配置优先，否则取供应商预设。
+     */
+    String resolveBaseUrl() {
+        return resolveBaseUrl(provider, baseUrl);
+    }
+
+    static String resolveBaseUrl(String provider, String baseUrl) {
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            return baseUrl;
+        }
+        return Providers.byName(provider).map(ProviderPreset::baseUrl).orElse("");
+    }
 
     /**
      * 默认内存实现。设 {@code aia.config.mode=jdbc} 时改由 {@link JdbcConfigConfiguration} 提供。
@@ -39,7 +58,8 @@ public class AgentConfiguration {
 
     @Bean
     public ChatModelFactory chatModelFactory() {
-        return modelName -> new OpenAiCompatibleChatModel(baseUrl, apiKey, modelName, HttpClient.newHttpClient());
+        String resolved = resolveBaseUrl();
+        return modelName -> new OpenAiCompatibleChatModel(resolved, apiKey, modelName, HttpClient.newHttpClient());
     }
 
     /**

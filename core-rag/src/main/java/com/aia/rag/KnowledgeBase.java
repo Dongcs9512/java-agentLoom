@@ -7,19 +7,29 @@ import java.util.Map;
 
 public final class KnowledgeBase {
 
+    /** 配了重排模型时，先按这个倍数粗召回，再交给重排收敛。 */
+    private static final int CANDIDATE_MULTIPLIER = 4;
+
     private final EmbeddingModel embedder;
     private final VectorStore store;
     private final TextChunker chunker;
     private final int chunkSize;
     private final int overlap;
+    private final RerankModel rerank;
     private final Map<String, List<String>> docChunks = new LinkedHashMap<>();
 
     public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap) {
+        this(embedder, store, chunker, chunkSize, overlap, null);
+    }
+
+    public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap,
+                         RerankModel rerank) {
         this.embedder = embedder;
         this.store = store;
         this.chunker = chunker;
         this.chunkSize = chunkSize;
         this.overlap = overlap;
+        this.rerank = rerank;
     }
 
     /**
@@ -44,7 +54,23 @@ public final class KnowledgeBase {
         if (query == null || query.isBlank()) {
             return List.of();
         }
-        return store.search(new VectorQuery(embedder.embed(query), topK, Map.of()));
+        float[] vector = embedder.embed(query);
+        if (rerank == null) {
+            return store.search(new VectorQuery(vector, topK, Map.of()));
+        }
+        List<SearchHit> candidates = store.search(new VectorQuery(vector, topK * CANDIDATE_MULTIPLIER, Map.of()));
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        List<String> texts = candidates.stream().map(SearchHit::text).toList();
+        List<RerankResult> ranked = rerank.rerank(query, texts, topK);
+
+        List<SearchHit> hits = new ArrayList<>();
+        for (RerankResult result : ranked) {
+            SearchHit hit = candidates.get(result.index());
+            hits.add(new SearchHit(hit.id(), hit.text(), (float) result.score(), hit.metadata()));
+        }
+        return hits;
     }
 
     public void updateChunk(String chunkId, String newText) {
