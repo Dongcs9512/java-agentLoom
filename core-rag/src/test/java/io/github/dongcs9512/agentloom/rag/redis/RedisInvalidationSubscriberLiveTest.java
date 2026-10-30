@@ -15,8 +15,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * 真实 Redis 的失效广播验证，默认跳过。
- *   mvn test -Dtest=RedisInvalidationSubscriberLiveTest -Daia.redis.host=192.168.5.15 \
- *            -Daia.redis.password=xxx -Dsurefire.failIfNoSpecifiedTests=false
+ *   mvn test -Dtest=RedisInvalidationSubscriberLiveTest -Dagentloom.redis.host=localhost \
+ *            -Dagentloom.redis.password=xxx -Dsurefire.failIfNoSpecifiedTests=false
  */
 class RedisInvalidationSubscriberLiveTest {
 

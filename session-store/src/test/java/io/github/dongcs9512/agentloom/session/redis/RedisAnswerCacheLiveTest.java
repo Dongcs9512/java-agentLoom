@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * 真实 Redis 答案缓存验证，默认跳过。
- *   mvn test -Dtest=RedisAnswerCacheLiveTest -Daia.redis.host=192.168.5.15 \
- *            -Daia.redis.password=xxx -Dsurefire.failIfNoSpecifiedTests=false
+ *   mvn test -Dtest=RedisAnswerCacheLiveTest -Dagentloom.redis.host=localhost \
+ *            -Dagentloom.redis.password=xxx -Dsurefire.failIfNoSpecifiedTests=false
  */
 class RedisAnswerCacheLiveTest {
 

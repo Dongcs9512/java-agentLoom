@@ -132,7 +132,7 @@ VectorStore vectorStore = new InMemoryVectorStore(embedder.dimension());
 
 ```java
 VectorStore vectorStore = new ElasticsearchVectorStore(
-    "http://192.168.5.15:9200",   // ES 地址
+    "http://localhost:9200",   // ES 地址
     "kb",                          // 索引名
     embedder.dimension(),          // 向量维度
     HttpClient.newHttpClient());
@@ -147,7 +147,7 @@ VectorStore vectorStore = new ElasticsearchVectorStore(
 
 ```bash
 mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
-         -Dagentloom.es.url=http://192.168.5.15:9200 \
+         -Dagentloom.es.url=http://localhost:9200 \
          -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
@@ -157,7 +157,7 @@ mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
 
 ```java
 VectorStore vectorStore = new RedisVectorStore(
-    "192.168.5.15", 6379, "password",
+    "localhost", 6379, "password",
     "agentloom-kb",                     // Vector Set 的 key
     embedder.dimension());
 ```
@@ -170,7 +170,7 @@ VectorStore vectorStore = new RedisVectorStore(
 
 ```bash
 mvn test -Dtest=RedisVectorStoreLiveTest \
-         -Dagentloom.redis.host=192.168.5.15 -Dagentloom.redis.password=xxx \
+         -Dagentloom.redis.host=localhost -Dagentloom.redis.password=xxx \
          -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
@@ -221,10 +221,10 @@ agentloom:
       model: ""
       dimension: 0
     es:
-      url: http://192.168.5.15:9200
+      url: http://localhost:9200
       index: agentloom-kb
     redis:
-      host: 192.168.5.15
+      host: localhost
       port: 6379
       password: xxx
       key: agentloom-kb
@@ -278,7 +278,7 @@ agentloom:
   config:
     mode: jdbc                     # 默认 memory（重启即丢）
     datasource:
-      url: jdbc:mysql://192.168.5.15:3306/ai_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      url: jdbc:mysql://localhost:3306/ai_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       username: your_user
       password: your_password
       driver-class-name: com.mysql.cj.jdbc.Driver
@@ -415,7 +415,7 @@ agentloom:
     enabled: true
     store: composite          # memory / redis / jdbc / composite
     ttl-seconds: 604800
-    redis: { host: 192.168.5.15, password: xxx }
+    redis: { host: localhost, password: xxx }
   answer-cache:
     enabled: true
     store: composite
@@ -880,7 +880,7 @@ agentloom:
       capacity: 2000
       ttl-seconds: 300
       redis:
-        host: 192.168.5.15
+        host: localhost
         password: xxx
         key-prefix: "agentloom:retrieval:"
 ```

@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * 针对真实 Elasticsearch 的端到端冒烟验证，默认跳过（不影响常规测试套件）。
  * 运行方式:
  *   mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
- *            -Daia.es.url=http://192.168.5.15:9200 \
+ *            -Dagentloom.es.url=http://localhost:9200 \
  *            -Dsurefire.failIfNoSpecifiedTests=false
  */
 class ElasticsearchVectorStoreLiveTest {

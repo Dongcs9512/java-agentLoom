@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * 针对真实 Redis（8+，需内置 vectorset 模块）的端到端验证，默认跳过。
  * 运行方式:
  *   mvn test -Dtest=RedisVectorStoreLiveTest \
- *            -Daia.redis.host=192.168.5.15 -Daia.redis.password=xxx \
+ *            -Dagentloom.redis.host=localhost -Dagentloom.redis.password=xxx \
  *            -Dsurefire.failIfNoSpecifiedTests=false
  */
 class RedisVectorStoreLiveTest {

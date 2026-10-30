@@ -1,11 +1,10 @@
 package io.github.dongcs9512.agentloom.server;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,22 +21,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 优雅下线验证：关闭上下文时，已经在处理中的请求应当正常跑完，而不是被切断。
- * 通过真实的 HTTP 请求 + 独立的上下文关闭来验证，不依赖操作系统信号。
+ *
+ * <p>这里用独立的 {@link SpringApplicationBuilder} 起一整套上下文再关掉，
+ * 不用 {@code @SpringBootTest}——否则会关掉测试框架缓存的共享上下文，影响其它测试。
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {
-                "server.shutdown=graceful",
-                "spring.lifecycle.timeout-per-shutdown-phase=10s",
-                "agentloom.rag.enabled=false",
-                "agentloom.session.enabled=false",
-                "agentloom.answer-cache.enabled=false",
-                "agentloom.demo.enabled=false",
-                "agentloom.eval.enabled=false",
-                "agentloom.scenarios.enabled=false"
-        })
 class GracefulShutdownTest {
 
-    @TestConfiguration
+    @Configuration
     static class SlowEndpointConfig {
         @Bean
         SlowController slowController() {
@@ -54,34 +44,49 @@ class GracefulShutdownTest {
         }
     }
 
-    @LocalServerPort
-    int port;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    ConfigurableApplicationContext context;
-
     @Test
     void inFlightRequestCompletesDuringGracefulShutdown() throws Exception {
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://127.0.0.1:" + port + "/api/slow"))
-                .timeout(Duration.ofSeconds(30))
-                .GET()
-                .build();
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(
+                AiAgentApplication.class, SlowEndpointConfig.class)
+                .properties(
+                        "server.port=0",
+                        "server.shutdown=graceful",
+                        "spring.lifecycle.timeout-per-shutdown-phase=10s",
+                        "agentloom.rag.enabled=false",
+                        "agentloom.session.enabled=false",
+                        "agentloom.answer-cache.enabled=false",
+                        "agentloom.demo.enabled=false",
+                        "agentloom.eval.enabled=false",
+                        "agentloom.scenarios.enabled=false")
+                .run();
 
-        long start = System.currentTimeMillis();
-        CompletableFuture<HttpResponse<String>> inFlight =
-                client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            int port = context.getEnvironment().getProperty("local.server.port", Integer.class);
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/api/slow"))
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
 
-        // 等请求真正进入处理阶段，再关闭上下文
-        Thread.sleep(800);
-        CompletableFuture.runAsync(context::close);
+            long start = System.currentTimeMillis();
+            CompletableFuture<HttpResponse<String>> inFlight =
+                    client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
 
-        HttpResponse<String> response = inFlight.get(30, TimeUnit.SECONDS);
-        long elapsed = System.currentTimeMillis() - start;
+            // 等请求真正进入处理阶段，再关闭上下文
+            Thread.sleep(800);
+            CompletableFuture.runAsync(context::close);
 
-        assertEquals(200, response.statusCode(), "在途请求不应被掐断");
-        assertEquals("done", response.body());
-        assertTrue(elapsed >= 3000, "请求应完整跑完，实际耗时 " + elapsed + "ms");
+            HttpResponse<String> response = inFlight.get(30, TimeUnit.SECONDS);
+            long elapsed = System.currentTimeMillis() - start;
+
+            assertEquals(200, response.statusCode(), "在途请求不应被掐断");
+            assertEquals("done", response.body());
+            assertTrue(elapsed >= 3000, "请求应完整跑完，实际耗时 " + elapsed + "ms");
+        } finally {
+            if (context.isActive()) {
+                context.close();
+            }
+        }
     }
 }

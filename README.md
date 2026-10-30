@@ -98,24 +98,3 @@ java -cp "examples/minimal-agent/target/classes;$(cat examples/minimal-agent/cp.
 | 检索缓存 | 首次 136ms → 命中 2ms |
 | 多实例 | 跨实例命中 31ms（对照 95ms），写入 1.2s 内全实例失效 |
 | 并发闸门 | 上限 4 打 16 并发：4 成功 / 12 个 503，过载响应 213ms |
-
-## 测试环境
-
-飞牛 OS（fnOS）`192.168.5.15:5666`，已有 MySQL、Redis、Elasticsearch（账号见项目根目录 `通用信息.txt`，勿提交）。
-
-## 许可证
-
-[Apache License 2.0](LICENSE)。
-
-可以自由地用于**商业闭源项目**、修改、分发、再许可。要求：
-
-- 保留 `LICENSE` 与 [`NOTICE`](NOTICE) 文件
-- 修改过的文件要标注「已修改」
-- 不能使用项目名或作者名做背书
-
-如果你的产品需要标注来源，可以写：
-
-> Powered by AgentLoom (Apache-2.0)
-
-相比 MIT，Apache-2.0 额外提供了**专利授权**（贡献者的专利不会反过来起诉使用者），
-所以企业法务通常更容易接受。

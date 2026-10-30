@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * 针对真实 Redis 的会话存储验证，默认跳过。
- *   mvn test -Dtest=RedisSessionStoreLiveTest -Daia.redis.host=192.168.5.15 \
- *            -Daia.redis.password=xxx -Dsurefire.failIfNoSpecifiedTests=false
+ *   mvn test -Dtest=RedisSessionStoreLiveTest -Dagentloom.redis.host=localhost \
+ *            -Dagentloom.redis.password=xxx -Dsurefire.failIfNoSpecifiedTests=false
  */
 class RedisSessionStoreLiveTest {
 

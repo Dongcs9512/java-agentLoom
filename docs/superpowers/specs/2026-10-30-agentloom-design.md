@@ -293,4 +293,3 @@ tools:
 2. **弹性默认实现走轻量内置**（超时+重试+熔断+降级抽象类），不引 Resilience4j，`ResiliencePolicy` SPI 留替换口。
 3. v1 不做管理后台 UI；个人项目，groupId/artifactId 用占位名。
 
-**测试环境**：飞牛 OS（fnOS）`192.168.5.15:5666`，已有 MySQL 和 Redis 服务，可安装新服务；账号信息见项目根目录 `通用信息.txt`（敏感，不入库）。
