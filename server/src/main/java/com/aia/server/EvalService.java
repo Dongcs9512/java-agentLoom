@@ -41,6 +41,7 @@ public class EvalService {
     private final ToolRegistry toolRegistry;
     private final ChatModelFactory chatModelFactory;
     private final ScenarioSettings scenarioSettings;
+    private final ScenarioRouterFactory scenarioRouterFactory;
     private final AgentRuntime evalRuntime;
     private final int defaultTopK;
 
@@ -49,13 +50,14 @@ public class EvalService {
 
     public EvalService(ObjectProvider<KnowledgeBase> knowledgeBase, ConfigRepository repo,
                        ToolRegistry toolRegistry, ChatModelFactory chatModelFactory,
-                       ScenarioSettings scenarioSettings,
+                       ScenarioSettings scenarioSettings, ScenarioRouterFactory scenarioRouterFactory,
                        @Value("${aia.eval.top-k:5}") int defaultTopK) {
         this.knowledgeBase = knowledgeBase;
         this.repo = repo;
         this.toolRegistry = toolRegistry;
         this.chatModelFactory = chatModelFactory;
         this.scenarioSettings = scenarioSettings;
+        this.scenarioRouterFactory = scenarioRouterFactory;
         // 单轮评测用独立运行时：不带会话与答案缓存
         this.evalRuntime = new AgentRuntime(repo, toolRegistry, chatModelFactory);
         this.defaultTopK = defaultTopK;
@@ -97,7 +99,7 @@ public class EvalService {
         AgentRuntime runtime = new AgentRuntime(repo, toolRegistry, chatModelFactory, new DefaultToolResolver(),
                 new SessionSupport(store, null,
                         new RuleBasedRetrievalRouter("您好，请问有什么可以帮您？", List.of()), null,
-                        scenarioSettings.enabled() ? scenarioSettings.toRouter() : null));
+                        scenarioSettings.enabled() ? scenarioRouterFactory.create() : null));
         String sessionId = "eval-" + dialogue.id();
 
         List<DialogueResult.DialogueTurnResult> turns = new ArrayList<>();

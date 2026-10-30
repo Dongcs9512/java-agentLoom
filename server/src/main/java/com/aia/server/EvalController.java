@@ -5,6 +5,7 @@ import com.aia.rag.eval.EvalGate;
 import com.aia.rag.eval.EvalReport;
 import com.aia.rag.eval.EvalThresholds;
 import com.aia.rag.eval.GateResult;
+import com.aia.rag.eval.RoutingStrategyReport;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -20,10 +22,11 @@ import java.util.Map;
 @ConditionalOnProperty(prefix = "aia.eval", name = "enabled", havingValue = "true")
 public class EvalController {
 
-    public record RunRequest(String dataset, String agentId, Integer topK, Boolean ingest) {
+    public record RunRequest(String dataset, String agentId, Integer topK, Boolean ingest, String llmModel) {
     }
 
     private final EvalService evalService;
+    private final RoutingBenchmarkService routingBenchmarkService;
 
     @Value("${aia.eval.thresholds.retrieval-hit-rate:0.95}")
     private double retrievalHitRateThreshold;
@@ -34,8 +37,9 @@ public class EvalController {
     @Value("${aia.eval.thresholds.pass-rate:0.90}")
     private double passRateThreshold;
 
-    public EvalController(EvalService evalService) {
+    public EvalController(EvalService evalService, RoutingBenchmarkService routingBenchmarkService) {
         this.evalService = evalService;
+        this.routingBenchmarkService = routingBenchmarkService;
     }
 
     @PostMapping("/run")
@@ -63,6 +67,36 @@ public class EvalController {
         body.put("summary", report.summary());
         body.put("passRate", report.passRate());
         body.put("averageSlotCompletion", report.averageSlotCompletion());
+        return body;
+    }
+
+    /**
+     * 场景路由横向对比：关键词 / 向量语义 / LLM 分类 / 级联，比准确率与延迟。
+     */
+    @PostMapping("/routing")
+    public Map<String, Object> runRouting(@RequestBody(required = false) RunRequest request) {
+        String dataset = request == null || request.dataset() == null || request.dataset().isBlank()
+                ? "routing" : request.dataset();
+        String llmModel = request == null || request.llmModel() == null || request.llmModel().isBlank()
+                ? "deepseek-chat" : request.llmModel();
+
+        Map<String, RoutingStrategyReport> reports = routingBenchmarkService.run(dataset, llmModel);
+        List<RoutingStrategyReport> ranking = RoutingBenchmarkService.ranked(reports);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("ranking", ranking.stream()
+                .map(r -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("strategy", r.strategy());
+                    item.put("accuracy", r.accuracy());
+                    item.put("avgLatencyMs", r.avgLatencyMs());
+                    item.put("p95LatencyMs", r.p95LatencyMs());
+                    item.put("mistakes", r.mistakes());
+                    return item;
+                })
+                .toList());
+        body.put("summary", ranking.stream().map(RoutingStrategyReport::summary).toList());
+        body.put("recommended", ranking.isEmpty() ? null : ranking.get(0).strategy());
         return body;
     }
 

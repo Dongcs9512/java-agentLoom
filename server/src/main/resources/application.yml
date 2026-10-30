@@ -87,18 +87,31 @@ aia:
     threshold-tokens: 3000
     keep-recent-messages: 8
     model: deepseek-chat
-  # 场景路由：接待 agent 收集完信息后，按内容确定性分派给对应专业 agent
+  # 场景路由：接待 agent 收集完信息后，按内容分派给对应专业 agent
   scenarios:
     enabled: true
+    # keyword（0 成本）/ embedding（一次向量化）/ llm（一次模型调用）/ cascade（快通道 + 逐级兜底）
+    strategy: cascade
+    # 快通道门槛：关键词加权得分低于这个值就交给下一级
+    min-score: 3
+    # 都判不出来时兜底给谁
     default-agent: legal-labor
+    llm-model: deepseek-chat
+    embedding-min-similarity: 0.62
     rules:
       # 关键词后加 *N 表示权重，具体领域词权重高，压过「辞退」「赔偿」这类泛化词
       - agent: legal-welfare
         keywords: 社保*3,社会保险*3,公积金*3,工伤*3,产假*2,孕期*2,哺乳期*2,年假*2
+        description: 社会保险与工伤、女职工三期保护
+        examples: 公司没交社保,上班受伤算工伤吗,怀孕了公司想辞退我
       - agent: legal-contract
         keywords: 竞业*3,保密*2,违约金*2,试用期*2,无固定期限*2
+        description: 劳动合同与竞业限制：书面合同、试用期、违约金、保密与竞业协议
+        examples: 竞业协议有没有效力,一直没签劳动合同,试用期可以约定多久
       - agent: legal-labor
         keywords: 辞退,解雇,开除,欠薪*2,拖欠工资*2,加班费*2,经济补偿,赔偿金,违法解除*2
+        description: 劳动争议：辞退解雇、拖欠工资、加班费、经济补偿与赔偿金
+        examples: 公司把我辞退了,老板不发工资,加班没有加班费
   # 固定评测集：POST /api/eval/run 触发，衡量检索命中率与答案关键词覆盖
   eval:
     enabled: false

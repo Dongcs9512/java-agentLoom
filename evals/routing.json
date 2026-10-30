@@ -1,0 +1,75 @@
+{
+  "name": "法律咨询场景路由评测集",
+  "version": "2026-10-30",
+  "note": "每道题标注期望分派到的专业 agent；alsoAcceptable 列出同样可接受的其它方向（多意图交叉场景）。expected 为 null 表示应当判为无法归类。",
+  "scenarios": [
+    {
+      "agent": "legal-labor",
+      "description": "劳动争议：辞退解雇、拖欠工资、加班费、经济补偿与赔偿金、年休假折算",
+      "examples": [
+        "公司把我辞退了",
+        "老板不发工资",
+        "加班没有加班费",
+        "被开除能拿多少补偿"
+      ]
+    },
+    {
+      "agent": "legal-contract",
+      "description": "劳动合同与竞业限制：书面合同签订、试用期约定、违约金、保密与竞业协议效力",
+      "examples": [
+        "竞业协议有没有效力",
+        "一直没签劳动合同",
+        "试用期可以约定多久",
+        "合同里的违约金条款"
+      ]
+    },
+    {
+      "agent": "legal-welfare",
+      "description": "社会保险与工伤、女职工三期保护：社保缴纳、公积金、工伤认定与待遇、孕期产期哺乳期",
+      "examples": [
+        "公司没交社保",
+        "上班受伤算工伤吗",
+        "怀孕了公司想辞退我",
+        "年假没休怎么算"
+      ]
+    }
+  ],
+  "cases": [
+    { "query": "公司不给我发工资", "expected": "legal-labor" },
+    { "query": "老板拖欠我三个月薪水一直拖着", "expected": "legal-labor" },
+    { "query": "今天突然通知我不用来了", "expected": "legal-labor" },
+    { "query": "被裁员了能拿补偿吗", "expected": "legal-labor" },
+    { "query": "天天加班到十点没有加班费", "expected": "legal-labor" },
+    { "query": "公司说我不胜任工作要求我走人", "expected": "legal-labor" },
+    { "query": "离职补偿金怎么算", "expected": "legal-labor" },
+    { "query": "试用期最后一天被开除了", "expected": "legal-labor" },
+    { "query": "不干了以后工资还没结清", "expected": "legal-labor" },
+
+    { "query": "竞业协议签了三年有效吗", "expected": "legal-contract" },
+    { "query": "离职后不能去同行公司上班", "expected": "legal-contract" },
+    { "query": "公司要我签保密协议", "expected": "legal-contract" },
+    { "query": "劳动合同里写了违约金条款合理吗", "expected": "legal-contract" },
+    { "query": "试用期最长可以约定多久", "expected": "legal-contract" },
+    { "query": "入职一年了一直没跟我签书面合同", "expected": "legal-contract", "alsoAcceptable": ["legal-labor"] },
+    { "query": "签的竞业协议没有写补偿标准", "expected": "legal-contract" },
+
+    { "query": "公司没给我交社保", "expected": "legal-welfare" },
+    { "query": "让我签自愿放弃社保的承诺书", "expected": "legal-welfare" },
+    { "query": "上班时手被机器压伤了怎么报工伤", "expected": "legal-welfare" },
+    { "query": "怀孕了公司想让我主动离职", "expected": "legal-welfare", "alsoAcceptable": ["legal-labor"] },
+    { "query": "年假没休完能折现吗", "expected": "legal-welfare" },
+    { "query": "生育津贴怎么领", "expected": "legal-welfare" },
+    { "query": "公司只按最低基数给我缴社保", "expected": "legal-welfare" },
+    { "query": "工伤休息期间公司不发工资", "expected": "legal-welfare", "alsoAcceptable": ["legal-labor"] },
+
+    { "query": "公司没交社保还把我辞退了", "expected": "legal-welfare", "alsoAcceptable": ["legal-labor"] },
+    { "query": "加班费不给医保也不交", "expected": "legal-labor", "alsoAcceptable": ["legal-welfare"] },
+    { "query": "签了竞业协议现在想跳槽公司不给补偿", "expected": "legal-contract" },
+    { "query": "试用期被辞退还能主张双倍工资吗", "expected": "legal-labor", "alsoAcceptable": ["legal-contract"] },
+
+    { "query": "今天天气不错", "expected": null },
+    { "query": "帮我写一段 Java 代码", "expected": null },
+    { "query": "你好", "expected": null },
+    { "query": "你们几点上班", "expected": null }
+  ]
+}

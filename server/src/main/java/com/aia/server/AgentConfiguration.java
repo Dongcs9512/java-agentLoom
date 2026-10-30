@@ -81,11 +81,12 @@ public class AgentConfiguration {
     public AgentRuntime agentRuntime(ConfigRepository configRepository, ToolRegistry toolRegistry,
                                      ChatModelFactory chatModelFactory, ToolResolver toolResolver,
                                      ObjectProvider<SessionSupport> sessionSupport,
-                                     ScenarioSettings scenarioSettings) {
+                                     ScenarioSettings scenarioSettings,
+                                     ScenarioRouterFactory scenarioRouterFactory) {
         SessionSupport base = sessionSupport.getIfAvailable(SessionSupport::disabled);
-        // 会话模块没配场景路由时，从 aia.scenarios.* 兜底解析
+        // 会话模块没配场景路由时，按 aia.scenarios.strategy 组装
         if (!base.hasScenarioRouter() && scenarioSettings.enabled()) {
-            base = base.withScenarioRouter(scenarioSettings.toRouter());
+            base = base.withScenarioRouter(scenarioRouterFactory.create());
         }
         return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver, base);
     }

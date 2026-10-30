@@ -28,10 +28,19 @@ public final class KeywordScenarioRouter implements ScenarioRouter {
 
     private final List<Rule> rules;
     private final String defaultAgentId;
+    private final int minScore;
 
     public KeywordScenarioRouter(List<Rule> rules, String defaultAgentId) {
+        this(rules, defaultAgentId, 1);
+    }
+
+    /**
+     * @param minScore 低于这个得分就认为没把握，交给默认 agent（级联时可传 null 默认让它落到下一个策略）
+     */
+    public KeywordScenarioRouter(List<Rule> rules, String defaultAgentId, int minScore) {
         this.rules = rules == null ? List.of() : List.copyOf(rules);
         this.defaultAgentId = defaultAgentId == null || defaultAgentId.isBlank() ? null : defaultAgentId;
+        this.minScore = Math.max(1, minScore);
     }
 
     @Override
@@ -59,7 +68,7 @@ public final class KeywordScenarioRouter implements ScenarioRouter {
                 bestAgent = rule.agentId();
             }
         }
-        if (bestAgent != null) {
+        if (bestAgent != null && bestScore >= minScore) {
             return Optional.of(bestAgent);
         }
         return Optional.ofNullable(defaultAgentId);
