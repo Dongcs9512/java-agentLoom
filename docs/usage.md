@@ -471,3 +471,58 @@ curl -X POST localhost:8080/api/chat/legal-intake \
   -H 'Content-Type: application/json' \
   -d '{"sessionId":"u1","message":"公司把我辞退了"}'
 ```
+
+## 12. 评测集（衡量答得准不准）
+
+`evals/*.json` 是固定评测集，一套包含「知识文档 + 问题 + 期望命中的文档 + 期望出现的关键事实」：
+
+```json
+{
+  "name": "劳动法咨询评测集",
+  "documents": [{ "docId": "double-wage", "text": "劳动合同法第八十二条：…" }],
+  "cases": [
+    {
+      "id": "no-written-contract",
+      "question": "入职一年了公司一直没跟我签劳动合同，能要双倍工资吗？",
+      "expectedDocIds": ["double-wage"],
+      "expectedKeywords": ["二倍", "十一个月"]
+    }
+  ]
+}
+```
+
+跑一次（`aia.eval.enabled=true`，`aia.eval.dataset-dir` 默认 `evals`）：
+
+```bash
+curl -X POST localhost:8080/api/eval/run -H 'Content-Type: application/json' \
+  -d '{"dataset":"labor-law","agentId":"legal-advisor","topK":4,"ingest":true}'
+```
+
+三个指标：
+
+| 指标 | 含义 |
+|---|---|
+| 检索命中率 | 期望文档是否出现在 topK 检索结果里 —— 衡量「找得到」 |
+| 关键词覆盖率 | 回答里出现了多少比例的关键事实 —— 衡量「答得实」 |
+| 通过率 | 检索命中 **且** 覆盖率 ≥ 阈值（默认 0.6） |
+
+评测用的是**无会话、无缓存**的独立运行时，避免上一题影响下一题。
+
+### 12.1 为什么要做文本归一化
+
+模型会说「支付 200% 工资」，而关键字写的是「百分之二百」；说「11 个月」，关键字是「十一个月」；
+说「30 天」，关键字是「30 日」。直接字符串匹配会把正确答案判成错的。
+
+`AnswerNormalizer` 对**回答和关键字做同一套归一化**后再比对：中文数字转阿拉伯数字、
+去掉「百分之」和 `%`、`日` 统一成 `天`、去空白标点。实测这一项把通过率从 80% 修正到 100%，
+说明当时那 3 道「失败」全是格式误判，不是答案问题。
+
+### 12.2 当前基线
+
+`evals/labor-law.json`（15 题）在 DeepSeek + 硅基流动 Qwen3-Embedding + ES + bge-reranker 下的结果：
+
+```
+检索命中率 100%（15/15）· 平均关键词覆盖 100% · 通过率 100%（阈值 60%）
+```
+
+改动模型、切分参数、换向量库或改提示词后重跑这一条，就能立刻看出有没有退化。

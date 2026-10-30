@@ -87,3 +87,8 @@ aia:
     threshold-tokens: 3000
     keep-recent-messages: 8
     model: deepseek-chat
+  # 固定评测集：POST /api/eval/run 触发，衡量检索命中率与答案关键词覆盖
+  eval:
+    enabled: false
+    dataset-dir: evals
+    top-k: 5
