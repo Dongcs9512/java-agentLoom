@@ -7,6 +7,23 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
+management:
+  endpoints:
+    web:
+      exposure:
+        # 暴露 Prometheus 抓取端点与健康检查
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ai-agent-framework
+    distribution:
+      percentiles-histogram:
+        aia.agent.chat: true
+        aia.rag.search: true
+
 aia:
   # 全局共享 HttpClient：避免每次模型调用都重建连接池
   http:

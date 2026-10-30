@@ -1,6 +1,7 @@
 package com.aia.server;
 
 import com.aia.core.ToolRegistry;
+import com.aia.core.obs.MetricsRecorder;
 import com.aia.llm.provider.ProviderPreset;
 import com.aia.llm.provider.Providers;
 import com.aia.rag.ElasticsearchVectorStore;
@@ -235,9 +236,10 @@ public class RagConfiguration {
     @Bean
     public KnowledgeBase knowledgeBase(EmbeddingModel embeddingModel, VectorStore vectorStore,
                                        ObjectProvider<RerankModel> rerankModelProvider,
-                                       ObjectProvider<RetrievalCache> retrievalCache) {
+                                       ObjectProvider<RetrievalCache> retrievalCache,
+                                       MetricsRecorder metricsRecorder) {
         return new KnowledgeBase(embeddingModel, vectorStore, new TextChunker(), chunkSize, chunkOverlap,
-                rerankModelProvider.getIfAvailable(), retrievalCache.getIfAvailable());
+                rerankModelProvider.getIfAvailable(), retrievalCache.getIfAvailable(), metricsRecorder);
     }
 
     /**

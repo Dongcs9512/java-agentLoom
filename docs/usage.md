@@ -992,3 +992,58 @@ curl localhost:8080/api/health
 - [ ] `aia.concurrency.max-concurrent` 按单机承载能力设置
 - [ ] 网关接入 `/api/health`，摘流量后再关进程
 - [ ] 关闭信号用 SIGTERM（K8s 默认），不要用 kill -9
+
+## 19. 可观测性（Prometheus 指标）
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+```
+
+```bash
+curl localhost:8080/actuator/prometheus
+```
+
+### 19.1 暴露的指标
+
+| 指标 | 类型 | 说明 |
+|---|---|---|
+| `aia_agent_chat_seconds` | Timer | 一次问答耗时，标签 `agent` / `outcome`(ok/error) / `stream` |
+| `aia_rag_search_seconds` | Timer | 检索耗时（向量化 + 检索 + 重排），标签 `rerank` |
+| `aia_cache_retrieval_total` | Counter | 检索缓存命中/未命中，标签 `result`(hit/miss) |
+| `aia_guard_rejected_total` | Counter | 因并发饱和/限流被拒的请求数 |
+
+核心库不依赖 Micrometer：`MetricsRecorder` 是纯接口，默认空实现；
+Spring 侧 `MicrometerMetricsRecorder` 把它接到 `MeterRegistry`。
+以后换 Dropwizard / OTel 只需再写一个实现。
+
+### 19.2 实测输出
+
+```
+aia_cache_retrieval_total{result="hit"}  2.0
+aia_cache_retrieval_total{result="miss"} 6.0
+aia_agent_chat_seconds_count{agent="legal-labor",outcome="ok"} 1
+aia_guard_rejected_total 1.0
+```
+
+（并发上限设为 1，同时打两个聊天请求：一个 200、一个 503，过载计数如实 +1。）
+
+### 19.3 值得配的告警
+
+| 告警 | 条件 | 含义 |
+|---|---|---|
+| 缓存命中率过低 | `rate(aia_cache_retrieval_total{result="hit"}[5m]) / rate(aia_cache_retrieval_total[5m]) < 0.3` | 缓存没起作用或知识库在频繁写入 |
+| 过载拒绝持续 | `rate(aia_guard_rejected_total[5m]) > 0` 持续 10 分钟 | 单机扛不住，该扩容或调 `max-concurrent` |
+| 问答变慢 | `histogram_quantile(0.95, rate(aia_agent_chat_seconds_bucket[5m])) > 10` | 模型侧或检索侧退化 |
+| 错误率升高 | `rate(aia_agent_chat_seconds_count{outcome="error"}[5m]) > 0` | 模型/网络异常 |
+
+### 19.4 还缺什么
+
+- **模型调用次数与 token 消耗**：需要在 `ChatModel` 层埋点（目前只在 agent 层测了整体耗时）
+- **场景分派计数**：哪个专业方向被分派了多少次，便于发现规则偏差
+- **链路追踪**：一次请求经过 分类 → 检索 → 生成 → 委派 的分段耗时，用 OpenTelemetry 更合适
+
+这三项要不要做，取决于是否要接入完整的 APM。

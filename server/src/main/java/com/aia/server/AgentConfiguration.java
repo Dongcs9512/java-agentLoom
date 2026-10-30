@@ -9,6 +9,7 @@ import com.aia.core.DefaultToolResolver;
 import com.aia.core.InMemoryConfigRepository;
 import com.aia.core.ToolRegistry;
 import com.aia.core.ToolResolver;
+import com.aia.core.obs.MetricsRecorder;
 import com.aia.llm.openai.OpenAiCompatibleChatModel;
 import com.aia.llm.provider.ProviderPreset;
 import com.aia.llm.provider.Providers;
@@ -105,13 +106,14 @@ public class AgentConfiguration {
                                      ObjectProvider<SessionSupport> sessionSupport,
                                      ScenarioSettings scenarioSettings,
                                      ScenarioRouterFactory scenarioRouterFactory,
-                                     GuardChain agentGuardChain) {
+                                     GuardChain agentGuardChain,
+                                     MetricsRecorder metricsRecorder) {
         SessionSupport base = sessionSupport.getIfAvailable(SessionSupport::disabled);
         // 会话模块没配场景路由时，按 aia.scenarios.strategy 组装
         if (!base.hasScenarioRouter() && scenarioSettings.enabled()) {
             base = base.withScenarioRouter(scenarioRouterFactory.create());
         }
         return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver, base,
-                agentGuardChain);
+                agentGuardChain, metricsRecorder);
     }
 }

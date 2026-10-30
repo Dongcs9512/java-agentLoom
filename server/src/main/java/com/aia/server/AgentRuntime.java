@@ -6,6 +6,7 @@ import com.aia.core.ConfigRepository;
 import com.aia.core.DefaultToolResolver;
 import com.aia.core.GuardChain;
 import com.aia.core.GuardContext;
+import com.aia.core.obs.MetricsRecorder;
 import com.aia.core.ScenarioDispatchTool;
 import com.aia.core.Skill;
 import com.aia.core.SkillConfig;
@@ -38,6 +39,7 @@ public final class AgentRuntime {
     private final ToolResolver toolResolver;
     private final SessionSupport sessionSupport;
     private final GuardChain guardChain;
+    private final MetricsRecorder metrics;
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory) {
         this(repo, tools, factory, new DefaultToolResolver(), SessionSupport.disabled());
@@ -49,17 +51,25 @@ public final class AgentRuntime {
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport) {
-        this(repo, tools, factory, toolResolver, sessionSupport, new GuardChain(List.of()));
+        this(repo, tools, factory, toolResolver, sessionSupport, new GuardChain(List.of()),
+                MetricsRecorder.noop());
     }
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain) {
+        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, MetricsRecorder.noop());
+    }
+
+    public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
+                        ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain,
+                        MetricsRecorder metrics) {
         this.repo = repo;
         this.tools = tools;
         this.factory = factory;
         this.toolResolver = toolResolver;
         this.sessionSupport = sessionSupport == null ? SessionSupport.disabled() : sessionSupport;
         this.guardChain = guardChain == null ? new GuardChain(List.of()) : guardChain;
+        this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
     }
 
     // ---------- 单轮问答（保持向后兼容） ----------
@@ -76,7 +86,9 @@ public final class AgentRuntime {
 
     public ChatReply chat(String agentId, String sessionId, String userMessage) {
         // 并发闸门：模型调用是最贵的资源，饱和时快速失败比全部拖到超时好
-        return guardChain.execute(new GuardContext(agentId), () -> doChat(agentId, sessionId, userMessage));
+        return guardChain.execute(new GuardContext(agentId),
+                () -> metrics.measure("aia.agent.chat", Map.of("agent", agentId),
+                        () -> doChat(agentId, sessionId, userMessage)));
     }
 
     private ChatReply doChat(String agentId, String sessionId, String userMessage) {
@@ -94,10 +106,11 @@ public final class AgentRuntime {
     }
 
     public void streamChat(String agentId, String sessionId, String userMessage, Consumer<String> onDelta) {
-        guardChain.execute(new GuardContext(agentId), () -> {
-            doStreamChat(agentId, sessionId, userMessage, onDelta);
-            return null;
-        });
+        guardChain.execute(new GuardContext(agentId), () ->
+                metrics.measure("aia.agent.chat", Map.of("agent", agentId, "stream", "true"), () -> {
+                    doStreamChat(agentId, sessionId, userMessage, onDelta);
+                    return null;
+                }));
     }
 
     private void doStreamChat(String agentId, String sessionId, String userMessage, Consumer<String> onDelta) {

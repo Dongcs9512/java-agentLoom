@@ -1,6 +1,7 @@
 package com.aia.server;
 
 import com.aia.core.OverloadedException;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -14,8 +15,15 @@ import java.util.Map;
 @RestControllerAdvice
 public class OverloadExceptionHandler {
 
+    private final MeterRegistry meterRegistry;
+
+    public OverloadExceptionHandler(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
     @ExceptionHandler(OverloadedException.class)
     public ResponseEntity<Map<String, Object>> handleOverloaded(OverloadedException e) {
+        meterRegistry.counter("aia.guard.rejected").increment();
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header("Retry-After", "1")
                 .body(Map.of(

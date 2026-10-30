@@ -1,5 +1,7 @@
 package com.aia.rag;
 
+import com.aia.core.obs.MetricsRecorder;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +20,7 @@ public final class KnowledgeBase {
     private final int overlap;
     private final RerankModel rerank;
     private final RetrievalCache cache;
+    private final MetricsRecorder metrics;
     private final Map<String, List<String>> docChunks = new LinkedHashMap<>();
 
     public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap) {
@@ -34,6 +37,11 @@ public final class KnowledgeBase {
      */
     public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap,
                          RerankModel rerank, RetrievalCache cache) {
+        this(embedder, store, chunker, chunkSize, overlap, rerank, cache, MetricsRecorder.noop());
+    }
+
+    public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap,
+                         RerankModel rerank, RetrievalCache cache, MetricsRecorder metrics) {
         this.embedder = embedder;
         this.store = store;
         this.chunker = chunker;
@@ -41,6 +49,7 @@ public final class KnowledgeBase {
         this.overlap = overlap;
         this.rerank = rerank;
         this.cache = cache;
+        this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
     }
 
     /**
@@ -70,10 +79,13 @@ public final class KnowledgeBase {
         if (cache != null) {
             Optional<List<SearchHit>> cached = cache.get(scope, query);
             if (cached.isPresent()) {
+                metrics.count("aia.cache.retrieval", Map.of("result", "hit"));
                 return cached.get();
             }
+            metrics.count("aia.cache.retrieval", Map.of("result", "miss"));
         }
 
+        long start = System.nanoTime();
         float[] vector = embedder.embed(query);
         List<SearchHit> hits = rerank == null
                 ? store.search(new VectorQuery(vector, topK, Map.of()))
@@ -82,6 +94,8 @@ public final class KnowledgeBase {
         if (cache != null) {
             cache.put(scope, query, hits);
         }
+        metrics.time("aia.rag.search", Math.round((System.nanoTime() - start) / 1_000_000.0),
+                Map.of("rerank", String.valueOf(rerank != null)));
         return hits;
     }
 
