@@ -13,6 +13,7 @@ import com.aia.rag.TextChunker;
 import com.aia.rag.VectorStore;
 import com.aia.rag.openai.OpenAiCompatibleEmbeddingModel;
 import com.aia.rag.openai.OpenAiCompatibleRerankModel;
+import com.aia.rag.redis.RedisVectorStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -43,11 +44,26 @@ public class RagConfiguration {
     @Value("${aia.rag.embedding.dimension:0}")
     private int dimension;
 
+    @Value("${aia.rag.store:memory}")
+    private String storeType;
+
     @Value("${aia.rag.es.url:}")
     private String esUrl;
 
     @Value("${aia.rag.es.index:aia-kb}")
     private String esIndex;
+
+    @Value("${aia.rag.redis.host:}")
+    private String redisHost;
+
+    @Value("${aia.rag.redis.port:6379}")
+    private int redisPort;
+
+    @Value("${aia.rag.redis.password:}")
+    private String redisPassword;
+
+    @Value("${aia.rag.redis.key:aia-kb}")
+    private String redisKey;
 
     @Value("${aia.rag.chunk-size:500}")
     private int chunkSize;
@@ -131,10 +147,23 @@ public class RagConfiguration {
     @Bean
     public VectorStore vectorStore(EmbeddingModel embeddingModel) {
         int dim = embeddingModel.dimension();
-        if (esUrl == null || esUrl.isBlank()) {
-            return new InMemoryVectorStore(dim);
-        }
-        return new ElasticsearchVectorStore(esUrl, esIndex, dim, HttpClient.newHttpClient());
+        return switch (storeType == null ? "memory" : storeType.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "es", "elasticsearch" -> {
+                if (esUrl.isBlank()) {
+                    throw new IllegalStateException("aia.rag.store=es 时必须配置 aia.rag.es.url");
+                }
+                yield new ElasticsearchVectorStore(esUrl, esIndex, dim, HttpClient.newHttpClient());
+            }
+            case "redis" -> {
+                if (redisHost.isBlank()) {
+                    throw new IllegalStateException("aia.rag.store=redis 时必须配置 aia.rag.redis.host");
+                }
+                yield new RedisVectorStore(redisHost, redisPort, redisPassword, redisKey, dim);
+            }
+            case "memory" -> new InMemoryVectorStore(dim);
+            default -> throw new IllegalStateException(
+                    "未知的向量库类型: " + storeType + "，可选 memory / es / redis");
+        };
     }
 
     @Bean

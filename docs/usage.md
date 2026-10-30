@@ -151,7 +151,30 @@ mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
          -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-### 4.3 向量化模型（OpenAI 兼容 /v1/embeddings）
+### 4.3 Redis 实现（Redis 8+ 原生 Vector Set）
+
+不需要 Redis Stack / RediSearch —— Redis 8.0 起内置了 `vectorset` 模块，直接用 `VADD` / `VSIM`。
+
+```java
+VectorStore vectorStore = new RedisVectorStore(
+    "192.168.5.15", 6379, "password",
+    "aia-kb",                     // Vector Set 的 key
+    embedder.dimension());
+```
+
+- 向量以 FP32 小端二进制写入，正文与元数据存进属性（正文 key 为 `text`）。
+- `search` 用 `VSIM ... WITHSCORES`，返回的是余弦相似度（1 = 完全一致）。
+- 支持 `METADATA_FILTER`：`filter` 里的每个键值会翻译成 Vector Set 的 `FILTER '.docId == "refund"'`。
+- 注意 `VREM` 一次只能删一个元素，`delete` 内部会逐个删除。
+- 真实 Redis 冒烟测试（默认跳过）：
+
+```bash
+mvn test -Dtest=RedisVectorStoreLiveTest \
+         -Daia.redis.host=192.168.5.15 -Daia.redis.password=xxx \
+         -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+### 4.4 向量化模型（OpenAI 兼容 /v1/embeddings）
 
 直接用供应商预设，不用记 baseUrl 和维度：
 
@@ -172,7 +195,7 @@ EmbeddingModel embedder = new OpenAiCompatibleEmbeddingModel(
 
 `KnowledgeBase.addDocument` 会用 `embedBatch` 一次性向量化全部切片，避免 N 次 HTTP 往返。
 
-### 4.4 让 agent 检索知识库
+### 4.5 让 agent 检索知识库
 
 ```java
 KnowledgeSearchTool tool = new KnowledgeSearchTool(kb, 5);
@@ -182,7 +205,7 @@ registry.register(tool);   // 注册后所有 agent 都能调用 search_knowledg
 工具名为 `search_knowledge`，参数 `query`（必填）、`topK`（可选），返回
 「序号 + 来源 chunkId + 原文」，模型据此作答。
 
-### 4.5 在 Spring Boot 服务里启用 RAG
+### 4.6 在 Spring Boot 服务里启用 RAG
 
 `application.yml`：
 
@@ -190,6 +213,7 @@ registry.register(tool);   // 注册后所有 agent 都能调用 search_knowledg
 aia:
   rag:
     enabled: true                  # 唯一开关，false 时框架其余功能照常可用
+    store: redis                   # memory（默认，重启丢失）/ es / redis
     embedding:
       provider: siliconflow        # 选供应商，下面三项留空即用它的预设
       base-url: ""
@@ -197,8 +221,15 @@ aia:
       model: ""
       dimension: 0
     es:
-      url: http://192.168.5.15:9200   # 留空则用内存实现（重启丢失）
+      url: http://192.168.5.15:9200
       index: aia-kb
+    redis:
+      host: 192.168.5.15
+      port: 6379
+      password: xxx
+      key: aia-kb
+    rerank:
+      enabled: true                # 留空即沿用 embedding 的供应商和 key
     chunk-size: 500
     chunk-overlap: 50
     top-k: 5

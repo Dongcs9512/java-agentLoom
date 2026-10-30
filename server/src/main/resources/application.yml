@@ -31,10 +31,16 @@ aia:
       api-key: ""
       model: ""
       dimension: 0
+    # 向量库实现: memory（默认，重启丢失）/ es / redis（Redis 8+ 的 Vector Set，无需 Redis Stack）
+    store: memory
     es:
-      # 留空则用内存实现（重启丢失，仅适合调试）
       url: ""
       index: aia-kb
+    redis:
+      host: ""
+      port: 6379
+      password: ""
+      key: aia-kb
     rerank:
       # 开启后先放大粗召回再重排，准确率更高但每次检索多一次模型调用
       enabled: false
