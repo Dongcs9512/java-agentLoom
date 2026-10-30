@@ -25,8 +25,12 @@ public class EvalController {
     public record RunRequest(String dataset, String agentId, Integer topK, Boolean ingest, String llmModel) {
     }
 
+    public record CacheRunRequest(String dataset, Integer requests, Integer hotPercent, Integer seed) {
+    }
+
     private final EvalService evalService;
     private final RoutingBenchmarkService routingBenchmarkService;
+    private final CacheBenchmarkService cacheBenchmarkService;
 
     @Value("${aia.eval.thresholds.retrieval-hit-rate:0.95}")
     private double retrievalHitRateThreshold;
@@ -37,9 +41,11 @@ public class EvalController {
     @Value("${aia.eval.thresholds.pass-rate:0.90}")
     private double passRateThreshold;
 
-    public EvalController(EvalService evalService, RoutingBenchmarkService routingBenchmarkService) {
+    public EvalController(EvalService evalService, RoutingBenchmarkService routingBenchmarkService,
+                          CacheBenchmarkService cacheBenchmarkService) {
         this.evalService = evalService;
         this.routingBenchmarkService = routingBenchmarkService;
+        this.cacheBenchmarkService = cacheBenchmarkService;
     }
 
     @PostMapping("/run")
@@ -98,6 +104,19 @@ public class EvalController {
         body.put("summary", ranking.stream().map(RoutingStrategyReport::summary).toList());
         body.put("recommended", ranking.isEmpty() ? null : ranking.get(0).strategy());
         return body;
+    }
+
+    /**
+     * 答案缓存收益评估：热门问题占比可调，对比精确缓存与多阈值的语义缓存。
+     */
+    @PostMapping("/cache")
+    public Map<String, Object> runCache(@RequestBody(required = false) CacheRunRequest request) {
+        String dataset = request == null || request.dataset() == null || request.dataset().isBlank()
+                ? "cache-traffic" : request.dataset();
+        return cacheBenchmarkService.run(dataset,
+                request == null ? null : request.requests(),
+                request == null ? null : request.hotPercent(),
+                request == null ? null : request.seed());
     }
 
     private EvalThresholds thresholds() {
