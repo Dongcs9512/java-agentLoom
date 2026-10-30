@@ -55,7 +55,17 @@ docker compose logs -f app
 
 ### 3.1 MySQL
 
-只需要建库，**表结构启动时自动创建**（含 `slots` 列的补列逻辑）：
+两种方式任选：
+
+**方式一（推荐生产）**：直接用仓库根目录的 [`init.sql`](../init.sql) 一次建好库和全部表——
+
+```bash
+mysql -u root -p < init.sql
+```
+
+好处是应用账号不需要 DDL 权限，DBA 可以统一管控表结构。
+
+**方式二**：只建库，表结构由应用启动时自动创建（含 `slots` 列的补列逻辑）：
 
 ```sql
 CREATE DATABASE ai_agent DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

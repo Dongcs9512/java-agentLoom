@@ -1172,21 +1172,46 @@ agentloom:
 
 单轮推进步数也有上限（20 步），防止条件写成互相跳转的死循环。
 
-### 20.4 接数据库（第二阶段）
+### 20.4 存数据库（已支持）
 
-当前从 `agentloom.workflows` 读。要改成数据库时，**引擎和运行时都不用动**——
-只要产出同样的 `WorkflowDefinition`：
+工作流可以放在数据库里，**改流程不用重启、多实例自动共享**：
 
-```sql
-CREATE TABLE workflow_config (
-  id VARCHAR(64) PRIMARY KEY,
-  entry_agent VARCHAR(64),
-  steps TEXT,              -- 与 YAML 同构的 JSON
-  enabled TINYINT DEFAULT 1
-);
+```yaml
+agentloom:
+  workflows:
+    load-from-db: true        # 开启后数据库优先于配置文件
+    db-cache-ttl-ms: 10000    # 缓存多久重新读一次库（避免每请求查库）
 ```
 
-然后在 `WorkflowProperties.toDefinitions()` 的调用处换成从 `ConfigRepository` 读即可。
+表结构在建库脚本 [`init.sql`](../init.sql) 里（`workflow_config`），
+应用启动时也会自动建表。
+
+**用接口管理，不用写 SQL：**
+
+```bash
+# 列出当前生效的工作流（source 标明来自 database 还是 config-file）
+curl localhost:8080/api/workflows
+
+# 新增/覆盖（保存即生效，其它实例最多 10 秒后同步）
+curl -X POST localhost:8080/api/workflows -H 'Content-Type: application/json' -d '{
+  "id": "refund-flow",
+  "entryAgent": "refund-intake",
+  "steps": [
+    {"id": "collect", "type": "COLLECT", "slots": ["orderId", "reason"], "maxTurns": 3},
+    {"id": "dispatch", "type": "DISPATCH"},
+    {"id": "answer", "type": "CALL", "agent": "@routed"}
+  ]
+}'
+
+# 删除
+curl -X DELETE localhost:8080/api/workflows/refund-flow
+```
+
+保存前会校验：条件能解析、跳转目标存在、CALL 有 agent、COLLECT 有槽位。
+**写错直接被拒，不会把坏配置写进库。**
+
+优先级：数据库 > 配置文件。数据库里没有的入口 agent 才回落到 YAML，
+所以你可以「配置文件放基线、数据库放线上临时调整」。
 
 ### 20.5 已知限制
 
@@ -1194,3 +1219,5 @@ CREATE TABLE workflow_config (
   单 agent 路径（不挂工作流）仍然逐字流式。
 - **流程结束后重新开始**：一条会话的流程走完会清空状态，下一条消息重新从第一步开始。
   如果你需要"结束后继续和同一个专业 agent 聊"，得再加一个"停留"步骤类型。
+- **数据库变更的生效延迟**：其它实例最多 `db-cache-ttl-ms`（默认 10 秒）后才看到新流程。
+  要立即生效可以调小 TTL，或手动调用一次 `WorkflowRegistry.refresh()`。

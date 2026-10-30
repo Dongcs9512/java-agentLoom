@@ -44,7 +44,7 @@ public final class AgentRuntime {
     private final SessionSupport sessionSupport;
     private final GuardChain guardChain;
     private final MetricsRecorder metrics;
-    private final Map<String, WorkflowDefinition> workflows;
+    private final java.util.function.Function<String, WorkflowDefinition> workflowLookup;
     private final WorkflowEngine workflowEngine = new WorkflowEngine();
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory) {
@@ -58,23 +58,24 @@ public final class AgentRuntime {
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport) {
         this(repo, tools, factory, toolResolver, sessionSupport, new GuardChain(List.of()),
-                MetricsRecorder.noop(), Map.of());
+                MetricsRecorder.noop(), id -> null);
     }
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain) {
-        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, MetricsRecorder.noop(), Map.of());
+        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, MetricsRecorder.noop(), id -> null);
     }
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain,
                         MetricsRecorder metrics) {
-        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, metrics, Map.of());
+        this(repo, tools, factory, toolResolver, sessionSupport, guardChain, metrics, id -> null);
     }
 
     public AgentRuntime(ConfigRepository repo, ToolRegistry tools, ChatModelFactory factory,
                         ToolResolver toolResolver, SessionSupport sessionSupport, GuardChain guardChain,
-                        MetricsRecorder metrics, Map<String, WorkflowDefinition> workflows) {
+                        MetricsRecorder metrics,
+                        java.util.function.Function<String, WorkflowDefinition> workflowLookup) {
         this.repo = repo;
         this.tools = tools;
         this.factory = factory;
@@ -82,7 +83,7 @@ public final class AgentRuntime {
         this.sessionSupport = sessionSupport == null ? SessionSupport.disabled() : sessionSupport;
         this.guardChain = guardChain == null ? new GuardChain(List.of()) : guardChain;
         this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
-        this.workflows = workflows == null ? Map.of() : Map.copyOf(workflows);
+        this.workflowLookup = workflowLookup == null ? id -> null : workflowLookup;
     }
 
     // ---------- 单轮问答（保持向后兼容） ----------
@@ -98,7 +99,7 @@ public final class AgentRuntime {
     // ---------- 多轮会话 ----------
 
     public ChatReply chat(String agentId, String sessionId, String userMessage) {
-        WorkflowDefinition workflow = workflows.get(agentId);
+        WorkflowDefinition workflow = workflowLookup.apply(agentId);
         // 并发闸门：模型调用是最贵的资源，饱和时快速失败比全部拖到超时好
         return guardChain.execute(new GuardContext(agentId),
                 () -> metrics.measure("agentloom.agent.chat", Map.of("agent", agentId),
@@ -168,7 +169,7 @@ public final class AgentRuntime {
     }
 
     public void streamChat(String agentId, String sessionId, String userMessage, Consumer<String> onDelta) {
-        WorkflowDefinition workflow = workflows.get(agentId);
+        WorkflowDefinition workflow = workflowLookup.apply(agentId);
         if (workflow != null) {
             // 工作流涉及多步编排，v1 整段推送；逐字流式只在单 agent 路径支持
             onDelta.accept(chat(agentId, sessionId, userMessage).answer());

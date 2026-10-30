@@ -176,6 +176,10 @@ agentloom:
   # 工作流编排：按步骤推进，状态存在会话里，可跨多轮
   # 当前用配置文件承载；后续接数据库时产出同样的 WorkflowDefinition 即可
   workflows:
+    # 数据库里的定义优先于本文件；改流程不用重启（默认 10s 内生效）
+    load-from-db: true
+    db-cache-ttl-ms: 10000
+    # 下面是按配置文件定义的工作流（数据库为空时使用）
     items:
       - id: legal-intake-flow
         entry-agent: legal-intake

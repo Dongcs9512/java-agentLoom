@@ -1,5 +1,7 @@
 package io.github.dongcs9512.agentloom.core;
 
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowDefinition;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +11,7 @@ public final class InMemoryConfigRepository implements ConfigRepository {
 
     private final Map<String, AgentConfig> agents = new LinkedHashMap<>();
     private final Map<String, SkillConfig> skills = new LinkedHashMap<>();
+    private final Map<String, WorkflowDefinition> workflows = new LinkedHashMap<>();
 
     @Override
     public List<AgentConfig> loadAgents() {
@@ -44,5 +47,23 @@ public final class InMemoryConfigRepository implements ConfigRepository {
     @Override
     public void deleteSkill(String name) {
         skills.remove(name);
+    }
+
+    @Override
+    public List<WorkflowDefinition> loadWorkflows() {
+        return new ArrayList<>(workflows.values());
+    }
+
+    @Override
+    public void saveWorkflow(WorkflowDefinition workflow) {
+        if (workflow.id() == null || workflow.id().isBlank()) {
+            throw new IllegalArgumentException("工作流 id 不能为空");
+        }
+        workflows.put(workflow.id(), workflow);
+    }
+
+    @Override
+    public void deleteWorkflow(String id) {
+        workflows.remove(id);
     }
 }

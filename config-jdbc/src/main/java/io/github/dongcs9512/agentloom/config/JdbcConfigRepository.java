@@ -4,6 +4,8 @@ import io.github.dongcs9512.agentloom.core.AgentConfig;
 import io.github.dongcs9512.agentloom.core.ConfigRepository;
 import io.github.dongcs9512.agentloom.core.SkillConfig;
 import io.github.dongcs9512.agentloom.core.session.Slot;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowDefinition;
+import io.github.dongcs9512.agentloom.core.workflow.WorkflowStep;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -22,6 +24,7 @@ public final class JdbcConfigRepository implements ConfigRepository {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<List<Slot>> SLOT_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<WorkflowStep>> STEP_LIST = new TypeReference<>() {};
 
     private final DataSource dataSource;
 
@@ -37,6 +40,9 @@ public final class JdbcConfigRepository implements ConfigRepository {
                     "tool_names TEXT, skill_names TEXT, temperature DOUBLE, max_tokens INT, slots TEXT)");
             st.execute("CREATE TABLE IF NOT EXISTS skill_config (" +
                     "name VARCHAR(64) PRIMARY KEY, description VARCHAR(255), instructions TEXT, tool_names TEXT)");
+            st.execute("CREATE TABLE IF NOT EXISTS workflow_config (" +
+                    "id VARCHAR(64) PRIMARY KEY, entry_agent VARCHAR(64), steps TEXT, " +
+                    "enabled TINYINT DEFAULT 1, updated_at BIGINT)");
             // 老库没有 slots 列时补上；已存在则忽略
             try (Statement alter = c.createStatement()) {
                 alter.execute("ALTER TABLE agent_config ADD COLUMN slots TEXT");
@@ -212,6 +218,80 @@ public final class JdbcConfigRepository implements ConfigRepository {
             return MAPPER.readValue(json, SLOT_LIST);
         } catch (Exception e) {
             return List.of();
+        }
+    }
+
+    @Override
+    public List<WorkflowDefinition> loadWorkflows() {
+        try (Connection c = dataSource.getConnection();
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT id, entry_agent, steps FROM workflow_config WHERE enabled = 1")) {
+            List<WorkflowDefinition> list = new ArrayList<>();
+            while (rs.next()) {
+                list.add(new WorkflowDefinition(
+                        rs.getString("id"),
+                        rs.getString("entry_agent"),
+                        parseSteps(rs.getString("steps"))));
+            }
+            return list;
+        } catch (SQLException e) {
+            throw new IllegalStateException("加载工作流配置失败", e);
+        }
+    }
+
+    @Override
+    public void saveWorkflow(WorkflowDefinition workflow) {
+        if (workflow.id() == null || workflow.id().isBlank()) {
+            throw new IllegalArgumentException("工作流 id 不能为空");
+        }
+        // 存之前先校验，别把写错的条件推进库里
+        workflow.validate();
+        try (Connection c = dataSource.getConnection()) {
+            try (PreparedStatement del = c.prepareStatement("DELETE FROM workflow_config WHERE id = ?")) {
+                del.setString(1, workflow.id());
+                del.executeUpdate();
+            }
+            try (PreparedStatement ins = c.prepareStatement(
+                    "INSERT INTO workflow_config (id, entry_agent, steps, enabled, updated_at) VALUES (?, ?, ?, 1, ?)")) {
+                ins.setString(1, workflow.id());
+                ins.setString(2, workflow.entryAgent());
+                ins.setString(3, toStepsJson(workflow.steps()));
+                ins.setLong(4, System.currentTimeMillis());
+                ins.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("保存工作流配置失败", e);
+        }
+    }
+
+    @Override
+    public void deleteWorkflow(String id) {
+        try (Connection c = dataSource.getConnection();
+             PreparedStatement ps = c.prepareStatement("DELETE FROM workflow_config WHERE id = ?")) {
+            ps.setString(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("删除工作流配置失败", e);
+        }
+    }
+
+    private String toStepsJson(List<WorkflowStep> steps) {
+        try {
+            return MAPPER.writeValueAsString(steps);
+        } catch (Exception e) {
+            throw new IllegalStateException("序列化工作流步骤失败", e);
+        }
+    }
+
+    private List<WorkflowStep> parseSteps(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return MAPPER.readValue(json, STEP_LIST);
+        } catch (Exception e) {
+            throw new IllegalStateException("解析工作流步骤失败: " + e.getMessage(), e);
         }
     }
 }
