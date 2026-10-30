@@ -61,8 +61,15 @@ aia:
     # 检索结果缓存：缓存命中的片段而不是回答，粒度安全
     cache:
       enabled: true
+      # memory（进程内，最快）/ redis（多实例共享）/ composite（两级：本地 + Redis）
+      store: memory
       capacity: 2000
       ttl-seconds: 300
+      redis:
+        host: ""
+        port: 6379
+        password: ""
+        key-prefix: "aia:retrieval:"
     # 同一问题并发时只检索一次
     single-flight-wait-ms: 5000
     chunk-size: 500

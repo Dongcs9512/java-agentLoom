@@ -7,6 +7,7 @@ import com.aia.rag.ElasticsearchVectorStore;
 import com.aia.rag.EmbeddingModel;
 import com.aia.rag.InMemoryVectorStore;
 import com.aia.rag.KnowledgeBase;
+import com.aia.rag.CompositeRetrievalCache;
 import com.aia.rag.InMemoryRetrievalCache;
 import com.aia.rag.KnowledgeSearchTool;
 import com.aia.rag.RetrievalCache;
@@ -15,6 +16,7 @@ import com.aia.rag.TextChunker;
 import com.aia.rag.VectorStore;
 import com.aia.rag.openai.OpenAiCompatibleEmbeddingModel;
 import com.aia.rag.openai.OpenAiCompatibleRerankModel;
+import com.aia.rag.redis.RedisRetrievalCache;
 import com.aia.rag.redis.RedisVectorStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -175,9 +177,31 @@ public class RagConfiguration {
     @ConditionalOnProperty(prefix = "aia.rag.cache", name = "enabled", havingValue = "true",
             matchIfMissing = true)
     public RetrievalCache retrievalCache(
+            @Value("${aia.rag.cache.store:memory}") String cacheStore,
             @Value("${aia.rag.cache.capacity:2000}") int cacheCapacity,
-            @Value("${aia.rag.cache.ttl-seconds:300}") int cacheTtlSeconds) {
-        return new InMemoryRetrievalCache(cacheCapacity, cacheTtlSeconds);
+            @Value("${aia.rag.cache.ttl-seconds:300}") int cacheTtlSeconds,
+            @Value("${aia.rag.cache.redis.host:}") String cacheRedisHost,
+            @Value("${aia.rag.cache.redis.port:6379}") int cacheRedisPort,
+            @Value("${aia.rag.cache.redis.password:}") String cacheRedisPassword,
+            @Value("${aia.rag.cache.redis.key-prefix:aia:retrieval:}") String cacheRedisPrefix) {
+        InMemoryRetrievalCache local = new InMemoryRetrievalCache(cacheCapacity, cacheTtlSeconds);
+        String type = cacheStore == null ? "memory" : cacheStore.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (type) {
+            case "redis" -> new RedisRetrievalCache(requireCacheRedis(cacheRedisHost), cacheRedisPort,
+                    cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds);
+            case "composite" -> new CompositeRetrievalCache(local,
+                    new RedisRetrievalCache(requireCacheRedis(cacheRedisHost), cacheRedisPort,
+                            cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds));
+            default -> local;
+        };
+    }
+
+    private static String requireCacheRedis(String host) {
+        if (host == null || host.isBlank()) {
+            throw new IllegalStateException("aia.rag.cache.store 选用 redis/composite 时必须配置 "
+                    + "aia.rag.cache.redis.host");
+        }
+        return host;
     }
 
     @Bean
