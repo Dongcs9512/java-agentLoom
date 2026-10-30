@@ -1047,3 +1047,58 @@ aia_guard_rejected_total 1.0
 - **链路追踪**：一次请求经过 分类 → 检索 → 生成 → 委派 的分段耗时，用 OpenTelemetry 更合适
 
 这三项要不要做，取决于是否要接入完整的 APM。
+
+### 19.5 成本与分派指标（第二轮补充）
+
+| 指标 | 标签 | 用途 |
+|---|---|---|
+| `aia_llm_calls_total` | `model` / `stream` | 模型调用次数，直接对应计费次数 |
+| `aia_llm_tokens_total` | `model` / `type`(prompt/completion) | token 消耗，按输入/输出分开 |
+| `aia_cache_retrieval_level_total` | `level`(l1/l2) | 检索缓存命中在内存还是 Redis |
+| `aia_cache_retrieval_total` | `result`(hit/miss) | 检索缓存整体命中率 |
+| `aia_answer_cache_total` | `result`(hit/miss) | 答案缓存命中率 |
+| `aia_scenario_dispatch_total` | `agent` / `source`(tool/auto) | 各专业方向被分派次数 |
+| `aia_stage_decision_total` | `decision`(CANNED/DIRECT/RETRIEVE) | 检索路由决策分布 |
+| `aia_stage_seconds` | `stage`(route/cache/compress) | 各阶段耗时 |
+| `aia_guard_rejected_total` | — | 过载拒绝数 |
+
+**`source` 标签很重要**：`tool` 表示模型主动调了分派工具，`auto` 表示框架在必填槽位齐了之后
+确定性接管。这个比例能告诉你模型靠不靠得住——`auto` 占比高说明模型经常忘记调工具。
+
+实测输出：
+
+```
+aia_llm_calls_total{model="deepseek-chat",stream="false"} 7.0
+aia_llm_tokens_total{model="deepseek-chat",type="prompt"} 10775.0
+aia_llm_tokens_total{model="deepseek-chat",type="completion"} 3839.0
+aia_scenario_dispatch_total{agent="legal-labor",source="tool"} 1.0
+aia_cache_retrieval_level_total{level="l1"} 1.0
+aia_cache_retrieval_level_total{level="l2"} 1.0
+aia_stage_seconds_count{stage="route"} 2
+aia_stage_seconds_count{stage="cache"} 1
+aia_stage_seconds_count{stage="compress"} 1
+```
+
+### 19.6 成本估算 PromQL
+
+```promql
+# 近 1 小时 token 总量
+sum by (type) (increase(aia_llm_tokens_total[1h]))
+
+# 按 DeepSeek 定价粗算成本（输入 1 元/百万 token、输出 2 元/百万 —— 以实际价格为准）
+sum(increase(aia_llm_tokens_total{type="prompt"}[1h])) / 1e6 * 1
++ sum(increase(aia_llm_tokens_total{type="completion"}[1h])) / 1e6 * 2
+
+# 单次问答平均 token
+sum(rate(aia_llm_tokens_total[5m])) / sum(rate(aia_agent_chat_seconds_count[5m]))
+
+# 关键词路由 / 缓存替用户省下的模型调用
+sum(rate(aia_stage_decision_total{decision="CANNED"}[5m]))
++ sum(rate(aia_answer_cache_total{result="hit"}[5m]))
+```
+
+### 19.7 已知限制
+
+- **流式请求统计不到 token**：流式响应里没有 usage 字段，只能统计调用次数（`stream=true`）。
+  要精确统计得在流结束时补一次计费查询，或改用非流式。
+- **子 agent 的 token 记在主 agent 名下**：`AgentLoop` 只知道自己的模型名，不区分调用来源。

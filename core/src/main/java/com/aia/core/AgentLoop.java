@@ -7,6 +7,8 @@ import com.aia.llm.ChatRequest;
 import com.aia.llm.ChatResponse;
 import com.aia.llm.ToolCall;
 import com.aia.llm.ToolDefinition;
+import com.aia.llm.Usage;
+import com.aia.core.obs.MetricsRecorder;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,6 +27,8 @@ public final class AgentLoop {
     private final int maxIterations;
     /** 该 agent 可见并可执行的工具，已按作用域解析并去重。 */
     private final Map<String, Tool> tools;
+    private final MetricsRecorder metrics;
+    private final String modelName;
 
     public AgentLoop(ChatModel model, ToolRegistry registry, String systemPrompt) {
         this(model, registry.all(), List.of(), systemPrompt, DEFAULT_MAX_ITERATIONS);
@@ -55,11 +59,41 @@ public final class AgentLoop {
     }
 
     public AgentLoop(ChatModel model, List<Tool> tools, List<Skill> skills, String systemPrompt, int maxIterations) {
+        this(model, tools, skills, systemPrompt, maxIterations, MetricsRecorder.noop(), "unknown");
+    }
+
+    public AgentLoop(ChatModel model, List<Tool> tools, List<Skill> skills, String systemPrompt,
+                     MetricsRecorder metrics, String modelName) {
+        this(model, tools, skills, systemPrompt, DEFAULT_MAX_ITERATIONS, metrics, modelName);
+    }
+
+    /**
+     * @param metrics   指标记录器，用于统计模型调用次数与 token 消耗
+     * @param modelName 模型名，作为指标标签
+     */
+    public AgentLoop(ChatModel model, List<Tool> tools, List<Skill> skills, String systemPrompt, int maxIterations,
+                     MetricsRecorder metrics, String modelName) {
+        this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
+        this.modelName = modelName == null || modelName.isBlank() ? "unknown" : modelName;
         this.model = model;
         this.skills = skills == null ? List.of() : List.copyOf(skills);
         this.systemPrompt = systemPrompt;
         this.maxIterations = maxIterations;
         this.tools = mergeTools(tools, this.skills);
+    }
+
+    /** 记录一次模型调用的次数与 token 消耗。 */
+    private void recordUsage(Usage usage, boolean stream) {
+        metrics.count("aia.llm.calls", Map.of("model", modelName, "stream", String.valueOf(stream)));
+        if (usage == null) {
+            return;
+        }
+        if (usage.promptTokens() != null) {
+            metrics.count("aia.llm.tokens", usage.promptTokens(), Map.of("model", modelName, "type", "prompt"));
+        }
+        if (usage.completionTokens() != null) {
+            metrics.count("aia.llm.tokens", usage.completionTokens(), Map.of("model", modelName, "type", "completion"));
+        }
     }
 
     public String run(String userMessage) {
@@ -76,6 +110,7 @@ public final class AgentLoop {
             ChatRequest request = new ChatRequest(List.copyOf(messages), allToolDefinitions(),
                     new ChatModelConfig(null, null));
             ChatResponse response = model.chat(request);
+            recordUsage(response.usage(), false);
             ChatMessage message = response.message();
 
             if (message.toolCalls().isEmpty()) {
@@ -100,6 +135,7 @@ public final class AgentLoop {
 
         for (int i = 0; i < maxIterations; i++) {
             List<ToolCall> toolCalls = new ArrayList<>();
+            metrics.count("aia.llm.calls", Map.of("model", modelName, "stream", "true"));
             model.stream(new ChatRequest(List.copyOf(messages), allToolDefinitions(), new ChatModelConfig(null, null)), chunk -> {
                 if (chunk.content() != null) {
                     onDelta.accept(chunk.content());

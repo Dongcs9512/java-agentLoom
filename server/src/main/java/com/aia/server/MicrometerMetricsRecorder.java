@@ -28,9 +28,17 @@ public class MicrometerMetricsRecorder implements MetricsRecorder {
 
     @Override
     public void count(String name, Map<String, String> tags) {
+        count(name, 1, tags);
+    }
+
+    @Override
+    public void count(String name, long amount, Map<String, String> tags) {
+        if (amount == 0) {
+            return;
+        }
         String key = key(name, tags);
         counters.computeIfAbsent(key, k -> Counter.builder(name).tags(toTags(tags)).register(registry))
-                .increment();
+                .increment(amount);
     }
 
     @Override

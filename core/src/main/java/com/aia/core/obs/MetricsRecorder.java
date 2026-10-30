@@ -11,6 +11,11 @@ public interface MetricsRecorder {
 
     /** 计数一次。 */
     default void count(String name, Map<String, String> tags) {
+        count(name, 1, tags);
+    }
+
+    /** 累加计数（例如 token 数这种不是每次 +1 的场景）。 */
+    default void count(String name, long amount, Map<String, String> tags) {
     }
 
     /** 记录一次耗时（毫秒）。 */

@@ -185,14 +185,22 @@ public final class AgentRuntime {
         AgentConfig config = loadAgent(agentId);
         Session session = loadOrCreateSession(sessionId, agentId);
 
+        long routeStart = System.nanoTime();
         RouteResult route = sessionSupport.hasRouter()
                 ? sessionSupport.router().route(userMessage, session)
                 : RouteResult.retrieve();
+        metrics.time("aia.stage", Math.round((System.nanoTime() - routeStart) / 1_000_000.0),
+                Map.of("stage", "route"));
+        metrics.count("aia.stage.decision", Map.of("decision", route.decision().name()));
 
         boolean slotsComplete = SlotPromptBuilder.missing(config.slots(), session).isEmpty();
         boolean cacheable = sessionSupport.hasCache() && slotsComplete && route.decision() != RouteDecision.CANNED;
         if (cacheable) {
+            long cacheStart = System.nanoTime();
             Optional<String> hit = sessionSupport.cache().get(agentId, userMessage);
+            metrics.time("aia.stage", Math.round((System.nanoTime() - cacheStart) / 1_000_000.0),
+                    Map.of("stage", "cache"));
+            metrics.count("aia.answer.cache", Map.of("result", hit.isPresent() ? "hit" : "miss"));
             if (hit.isPresent()) {
                 return new PreparedTurn(config, session, route, hit.get(), null, List.of(), true);
             }
@@ -233,6 +241,7 @@ public final class AgentRuntime {
             return null;
         }
         session.putSlot(ScenarioDispatchTool.SCENARIO_SLOT, target.get());
+        metrics.count("aia.scenario.dispatch", Map.of("agent", target.get(), "source", "auto"));
         return specialist;
     }
 
@@ -261,7 +270,10 @@ public final class AgentRuntime {
                                                 String userMessage, boolean includeSlotPrompt) {
         String summary = session.summary();
         if (sessionSupport.hasCompressor() && !session.messages().isEmpty()) {
+            long compressStart = System.nanoTime();
             CompressedContext compressed = sessionSupport.compressor().compress(summary, session.messages());
+            metrics.time("aia.stage", Math.round((System.nanoTime() - compressStart) / 1_000_000.0),
+                    Map.of("stage", "compress"));
             if (compressed.messages().size() != session.messages().size()
                     || !Objects.equals(compressed.summary(), summary)) {
                 session.replaceHistory(compressed.summary(), compressed.messages());
@@ -320,10 +332,10 @@ public final class AgentRuntime {
             if (sessionSupport.hasScenarioRouter()) {
                 // 接待类 agent 收集完信息后，由路由把案件分给对应的专业 agent
                 resolved.add(new ScenarioDispatchTool(sessionSupport.scenarioRouter(), session,
-                        specialistId -> buildSpecialistLoop(specialistId)));
+                        this::buildSpecialistLoop, metrics));
             }
         }
-        return new AgentLoop(model, resolved, skills, config.systemPrompt());
+        return new AgentLoop(model, resolved, skills, config.systemPrompt(), metrics, config.model());
     }
 
     private AgentLoop buildSpecialistLoop(String agentId) {

@@ -196,7 +196,8 @@ public class RagConfiguration {
             @Value("${aia.rag.cache.redis.password:}") String cacheRedisPassword,
             @Value("${aia.rag.cache.redis.key-prefix:aia:retrieval:}") String cacheRedisPrefix,
             @Value("${aia.rag.cache.version-check-ms:2000}") long cacheVersionCheckMs,
-            @Value("${aia.rag.cache.pubsub-enabled:true}") boolean cachePubSubEnabled) {
+            @Value("${aia.rag.cache.pubsub-enabled:true}") boolean cachePubSubEnabled,
+            MetricsRecorder metricsRecorder) {
         InMemoryRetrievalCache local = new InMemoryRetrievalCache(cacheCapacity, cacheTtlSeconds);
         String type = cacheStore == null ? "memory" : cacheStore.trim().toLowerCase(java.util.Locale.ROOT);
         return switch (type) {
@@ -207,7 +208,7 @@ public class RagConfiguration {
                         cacheRedisPort, cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds);
                 startInvalidationSubscriber(cachePubSubEnabled, cacheRedisHost, cacheRedisPort,
                         cacheRedisPassword, shared.invalidationChannel(), local);
-                yield new CompositeRetrievalCache(local, shared, cacheVersionCheckMs);
+                yield new CompositeRetrievalCache(local, shared, cacheVersionCheckMs, metricsRecorder);
             }
             default -> local;
         };

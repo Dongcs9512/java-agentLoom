@@ -1,5 +1,6 @@
 package com.aia.core;
 
+import com.aia.core.obs.MetricsRecorder;
 import com.aia.core.session.ScenarioRouter;
 import com.aia.core.session.Session;
 
@@ -26,11 +27,18 @@ public final class ScenarioDispatchTool extends AbstractTool {
     private final ScenarioRouter router;
     private final Session session;
     private final Function<String, AgentLoop> loopFactory;
+    private final MetricsRecorder metrics;
 
     public ScenarioDispatchTool(ScenarioRouter router, Session session, Function<String, AgentLoop> loopFactory) {
+        this(router, session, loopFactory, MetricsRecorder.noop());
+    }
+
+    public ScenarioDispatchTool(ScenarioRouter router, Session session, Function<String, AgentLoop> loopFactory,
+                                MetricsRecorder metrics) {
         this.router = router;
         this.session = session;
         this.loopFactory = loopFactory;
+        this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
     }
 
     @Override
@@ -82,6 +90,7 @@ public final class ScenarioDispatchTool extends AbstractTool {
             if (session != null) {
                 session.putSlot(SCENARIO_SLOT, agentId.get());
             }
+            metrics.count("aia.scenario.dispatch", Map.of("agent", agentId.get(), "source", "tool"));
             return ToolResult.ok("【已转交 " + agentId.get() + "】\n" + loop.run(task));
         } finally {
             DEPTH.set(depth);

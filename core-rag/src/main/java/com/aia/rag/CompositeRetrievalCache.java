@@ -1,6 +1,9 @@
 package com.aia.rag;
 
+import com.aia.core.obs.MetricsRecorder;
+
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -18,6 +21,7 @@ public final class CompositeRetrievalCache implements RetrievalCache {
     private final RetrievalCache l2;
     private final VersionedRetrievalCache versionedL2;
     private final long checkIntervalMs;
+    private final MetricsRecorder metrics;
 
     private volatile long knownVersion;
     private volatile long lastCheckAt;
@@ -27,10 +31,16 @@ public final class CompositeRetrievalCache implements RetrievalCache {
     }
 
     public CompositeRetrievalCache(RetrievalCache l1, RetrievalCache l2, long checkIntervalMs) {
+        this(l1, l2, checkIntervalMs, MetricsRecorder.noop());
+    }
+
+    public CompositeRetrievalCache(RetrievalCache l1, RetrievalCache l2, long checkIntervalMs,
+                                   MetricsRecorder metrics) {
         this.l1 = l1;
         this.l2 = l2;
         this.versionedL2 = l2 instanceof VersionedRetrievalCache v ? v : null;
         this.checkIntervalMs = Math.max(0, checkIntervalMs);
+        this.metrics = metrics == null ? MetricsRecorder.noop() : metrics;
         if (versionedL2 != null) {
             try {
                 this.knownVersion = versionedL2.version();
@@ -45,10 +55,14 @@ public final class CompositeRetrievalCache implements RetrievalCache {
         syncVersion();
         Optional<List<SearchHit>> local = l1.get(scope, query);
         if (local.isPresent()) {
+            metrics.count("aia.cache.retrieval.level", Map.of("level", "l1"));
             return local;
         }
         Optional<List<SearchHit>> shared = l2.get(scope, query);
-        shared.ifPresent(hits -> l1.put(scope, query, hits));
+        if (shared.isPresent()) {
+            metrics.count("aia.cache.retrieval.level", Map.of("level", "l2"));
+            l1.put(scope, query, shared.get());
+        }
         return shared;
     }
 
