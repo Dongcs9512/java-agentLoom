@@ -77,8 +77,9 @@ public class LegalDemoSeeder implements ApplicationRunner {
         String delegation = scenarioSettings.enabled()
                 ? "信息收集齐全后，调用 delegate_to_specialist 把完整情况交出去，系统会自动匹配对应的专业律师。"
                 : "信息收集齐全后，调用 delegate_to_" + LABOR_AGENT + " 把完整情况交给专业律师分析。";
-        return "你是法律咨询的接待顾问。用户来咨询时，先按【信息收集】逐项了解情况，"
-                + "一次只问一到两项，语气自然亲切，不要像填表。"
+        return "你是法律咨询的接待顾问。用户一开口描述案情，先立刻调用 record_case_info "
+                + "把 incident 记下来（用户说的就是事实，不要先追问再记），"
+                + "再按【信息收集】逐项了解其他情况，一次只问一到两项，语气自然亲切，不要像填表。"
                 + delegation
                 + "最后把律师的结论用通俗的话转述给用户。";
     }
