@@ -3,6 +3,7 @@ package com.aia.rag;
 import com.aia.core.AbstractTool;
 import com.aia.core.ToolInvocation;
 import com.aia.core.ToolResult;
+import com.aia.core.session.QuestionNormalizer;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,10 +19,20 @@ public final class KnowledgeSearchTool extends AbstractTool {
 
     private final KnowledgeBase knowledgeBase;
     private final int defaultTopK;
+    private final com.aia.core.SingleFlight<String, List<SearchHit>> flight;
 
     public KnowledgeSearchTool(KnowledgeBase knowledgeBase, int defaultTopK) {
+        this(knowledgeBase, defaultTopK, null);
+    }
+
+    /**
+     * @param flight 并发去重：同一问题被同时问爆时只检索一次，可为 null
+     */
+    public KnowledgeSearchTool(KnowledgeBase knowledgeBase, int defaultTopK,
+                               com.aia.core.SingleFlight<String, List<SearchHit>> flight) {
         this.knowledgeBase = knowledgeBase;
         this.defaultTopK = defaultTopK;
+        this.flight = flight;
     }
 
     @Override
@@ -63,7 +74,11 @@ public final class KnowledgeSearchTool extends AbstractTool {
         }
         int topK = topK(invocation.arguments().get("topK"));
 
-        List<SearchHit> hits = knowledgeBase.search(String.valueOf(rawQuery), topK);
+        String query = String.valueOf(rawQuery);
+        List<SearchHit> hits = flight == null
+                ? knowledgeBase.search(query, topK)
+                : flight.execute(topK + "|" + QuestionNormalizer.normalize(query),
+                        () -> knowledgeBase.search(query, topK));
         if (hits.isEmpty()) {
             return ToolResult.ok("未找到相关知识。");
         }

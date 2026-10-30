@@ -7,7 +7,9 @@ import com.aia.rag.ElasticsearchVectorStore;
 import com.aia.rag.EmbeddingModel;
 import com.aia.rag.InMemoryVectorStore;
 import com.aia.rag.KnowledgeBase;
+import com.aia.rag.InMemoryRetrievalCache;
 import com.aia.rag.KnowledgeSearchTool;
+import com.aia.rag.RetrievalCache;
 import com.aia.rag.RerankModel;
 import com.aia.rag.TextChunker;
 import com.aia.rag.VectorStore;
@@ -91,7 +93,7 @@ public class RagConfiguration {
      * 留空的项从 {@code aia.rag.embedding.provider} 指向的供应商预设里取。
      */
     @Bean
-    public EmbeddingModel embeddingModel() {
+    public EmbeddingModel embeddingModel(HttpClient sharedHttpClient) {
         String baseUrl = resolvedEmbeddingBaseUrl();
         String model = !embeddingModel.isBlank() ? embeddingModel : presetOf(embeddingProvider)
                 .map(ProviderPreset::embeddingModel).orElse("");
@@ -107,7 +109,7 @@ public class RagConfiguration {
         if (dim <= 0) {
             throw new IllegalStateException("未配置向量维度：请设置 aia.rag.embedding.dimension");
         }
-        return new OpenAiCompatibleEmbeddingModel(baseUrl, embeddingApiKey, model, dim, HttpClient.newHttpClient());
+        return new OpenAiCompatibleEmbeddingModel(baseUrl, embeddingApiKey, model, dim, sharedHttpClient);
     }
 
     /**
@@ -115,7 +117,7 @@ public class RagConfiguration {
      */
     @Bean
     @ConditionalOnProperty(prefix = "aia.rag.rerank", name = "enabled", havingValue = "true")
-    public RerankModel rerankModel() {
+    public RerankModel rerankModel(HttpClient sharedHttpClient) {
         String providerName = rerankProvider.isBlank() ? embeddingProvider : rerankProvider;
         String baseUrl = !rerankBaseUrl.isBlank() ? rerankBaseUrl : resolvedEmbeddingBaseUrl();
         String apiKey = !rerankApiKey.isBlank() ? rerankApiKey : embeddingApiKey;
@@ -127,7 +129,7 @@ public class RagConfiguration {
                     "未配置重排服务：请设置 aia.rag.rerank.provider（如 siliconflow），"
                             + "或显式填写 aia.rag.rerank.base-url 与 model");
         }
-        return new OpenAiCompatibleRerankModel(baseUrl, apiKey, model, HttpClient.newHttpClient());
+        return new OpenAiCompatibleRerankModel(baseUrl, apiKey, model, sharedHttpClient);
     }
 
     private String resolvedEmbeddingBaseUrl() {
@@ -145,14 +147,14 @@ public class RagConfiguration {
     }
 
     @Bean
-    public VectorStore vectorStore(EmbeddingModel embeddingModel) {
+    public VectorStore vectorStore(EmbeddingModel embeddingModel, HttpClient sharedHttpClient) {
         int dim = embeddingModel.dimension();
         return switch (storeType == null ? "memory" : storeType.trim().toLowerCase(java.util.Locale.ROOT)) {
             case "es", "elasticsearch" -> {
                 if (esUrl.isBlank()) {
                     throw new IllegalStateException("aia.rag.store=es 时必须配置 aia.rag.es.url");
                 }
-                yield new ElasticsearchVectorStore(esUrl, esIndex, dim, HttpClient.newHttpClient());
+                yield new ElasticsearchVectorStore(esUrl, esIndex, dim, sharedHttpClient);
             }
             case "redis" -> {
                 if (redisHost.isBlank()) {
@@ -166,19 +168,35 @@ public class RagConfiguration {
         };
     }
 
+    /**
+     * 检索结果缓存：缓存「这个问题命中哪几篇片段」而不是回答，粒度安全。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "aia.rag.cache", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
+    public RetrievalCache retrievalCache(
+            @Value("${aia.rag.cache.capacity:2000}") int cacheCapacity,
+            @Value("${aia.rag.cache.ttl-seconds:300}") int cacheTtlSeconds) {
+        return new InMemoryRetrievalCache(cacheCapacity, cacheTtlSeconds);
+    }
+
     @Bean
     public KnowledgeBase knowledgeBase(EmbeddingModel embeddingModel, VectorStore vectorStore,
-                                       ObjectProvider<RerankModel> rerankModelProvider) {
+                                       ObjectProvider<RerankModel> rerankModelProvider,
+                                       ObjectProvider<RetrievalCache> retrievalCache) {
         return new KnowledgeBase(embeddingModel, vectorStore, new TextChunker(), chunkSize, chunkOverlap,
-                rerankModelProvider.getIfAvailable());
+                rerankModelProvider.getIfAvailable(), retrievalCache.getIfAvailable());
     }
 
     /**
      * 把知识库检索注册成全局工具，所有 agent 都可调用 search_knowledge。
      */
     @Bean
-    public KnowledgeSearchTool knowledgeSearchTool(KnowledgeBase knowledgeBase, ToolRegistry toolRegistry) {
-        KnowledgeSearchTool tool = new KnowledgeSearchTool(knowledgeBase, topK);
+    public KnowledgeSearchTool knowledgeSearchTool(KnowledgeBase knowledgeBase, ToolRegistry toolRegistry,
+            @Value("${aia.rag.single-flight-wait-ms:5000}") long singleFlightWaitMs) {
+        // 同一问题被并发问爆时只检索一次
+        KnowledgeSearchTool tool = new KnowledgeSearchTool(knowledgeBase, topK,
+                new com.aia.core.SingleFlight<>(singleFlightWaitMs));
         toolRegistry.register(tool);
         return tool;
     }

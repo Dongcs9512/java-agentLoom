@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public final class KnowledgeBase {
 
@@ -16,20 +17,30 @@ public final class KnowledgeBase {
     private final int chunkSize;
     private final int overlap;
     private final RerankModel rerank;
+    private final RetrievalCache cache;
     private final Map<String, List<String>> docChunks = new LinkedHashMap<>();
 
     public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap) {
-        this(embedder, store, chunker, chunkSize, overlap, null);
+        this(embedder, store, chunker, chunkSize, overlap, null, null);
     }
 
     public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap,
                          RerankModel rerank) {
+        this(embedder, store, chunker, chunkSize, overlap, rerank, null);
+    }
+
+    /**
+     * @param cache 检索结果缓存，可为 null（关闭缓存）
+     */
+    public KnowledgeBase(EmbeddingModel embedder, VectorStore store, TextChunker chunker, int chunkSize, int overlap,
+                         RerankModel rerank, RetrievalCache cache) {
         this.embedder = embedder;
         this.store = store;
         this.chunker = chunker;
         this.chunkSize = chunkSize;
         this.overlap = overlap;
         this.rerank = rerank;
+        this.cache = cache;
     }
 
     /**
@@ -47,6 +58,7 @@ public final class KnowledgeBase {
         }
         store.upsert(records);
         docChunks.put(docId, ids);
+        invalidateCache();
         return chunks.size();
     }
 
@@ -54,10 +66,26 @@ public final class KnowledgeBase {
         if (query == null || query.isBlank()) {
             return List.of();
         }
-        float[] vector = embedder.embed(query);
-        if (rerank == null) {
-            return store.search(new VectorQuery(vector, topK, Map.of()));
+        String scope = "topK=" + topK + (rerank == null ? "" : "+rerank");
+        if (cache != null) {
+            Optional<List<SearchHit>> cached = cache.get(scope, query);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
         }
+
+        float[] vector = embedder.embed(query);
+        List<SearchHit> hits = rerank == null
+                ? store.search(new VectorQuery(vector, topK, Map.of()))
+                : reranked(query, vector, topK);
+
+        if (cache != null) {
+            cache.put(scope, query, hits);
+        }
+        return hits;
+    }
+
+    private List<SearchHit> reranked(String query, float[] vector, int topK) {
         List<SearchHit> candidates = store.search(new VectorQuery(vector, topK * CANDIDATE_MULTIPLIER, Map.of()));
         if (candidates.isEmpty()) {
             return List.of();
@@ -78,12 +106,20 @@ public final class KnowledgeBase {
             return;
         }
         store.update(List.of(new VectorRecord(chunkId, newText, embedder.embed(newText), Map.of())));
+        invalidateCache();
     }
 
     public void deleteDocument(String docId) {
         List<String> ids = docChunks.remove(docId);
         if (ids != null && !ids.isEmpty()) {
             store.delete(ids);
+        }
+        invalidateCache();
+    }
+
+    private void invalidateCache() {
+        if (cache != null) {
+            cache.clear();
         }
     }
 

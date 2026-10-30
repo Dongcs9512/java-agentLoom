@@ -2,6 +2,15 @@ server:
   port: 8080
 
 aia:
+  # 全局共享 HttpClient：避免每次模型调用都重建连接池
+  http:
+    connect-timeout-ms: 5000
+  # 并发防护：饱和时快速失败，避免线程/连接被打满
+  concurrency:
+    max-concurrent: 32
+    max-wait-ms: 2000
+    # >0 时启用每秒请求数限流
+    rate-limit-per-second: 0
   llm:
     # 选一个供应商，base-url 留空时自动取预设；填了 base-url 则以它为准
     # 内置: deepseek / dashscope / siliconflow / openai / ollama
@@ -49,6 +58,13 @@ aia:
       base-url: ""
       api-key: ""
       model: ""
+    # 检索结果缓存：缓存命中的片段而不是回答，粒度安全
+    cache:
+      enabled: true
+      capacity: 2000
+      ttl-seconds: 300
+    # 同一问题并发时只检索一次
+    single-flight-wait-ms: 5000
     chunk-size: 500
     chunk-overlap: 50
     top-k: 5

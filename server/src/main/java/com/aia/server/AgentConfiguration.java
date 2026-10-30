@@ -1,6 +1,10 @@
 package com.aia.server;
 
+import com.aia.core.ConcurrencyGuard;
 import com.aia.core.ConfigRepository;
+import com.aia.core.Guard;
+import com.aia.core.GuardChain;
+import com.aia.core.RateLimitGuard;
 import com.aia.core.DefaultToolResolver;
 import com.aia.core.InMemoryConfigRepository;
 import com.aia.core.ToolRegistry;
@@ -16,6 +20,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.net.http.HttpClient;
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 public class AgentConfiguration {
@@ -58,9 +64,9 @@ public class AgentConfiguration {
     }
 
     @Bean
-    public ChatModelFactory chatModelFactory() {
+    public ChatModelFactory chatModelFactory(HttpClient sharedHttpClient) {
         String resolved = resolveBaseUrl();
-        return modelName -> new OpenAiCompatibleChatModel(resolved, apiKey, modelName, HttpClient.newHttpClient());
+        return modelName -> new OpenAiCompatibleChatModel(resolved, apiKey, modelName, sharedHttpClient);
     }
 
     /**
@@ -77,17 +83,35 @@ public class AgentConfiguration {
         return ScenarioSettings.from(environment);
     }
 
+    /**
+     * 并发防护：限流（可选）+ 并发闸门。饱和时快速失败，避免线程与连接被打满。
+     */
+    @Bean
+    public GuardChain agentGuardChain(
+            @Value("${aia.concurrency.max-concurrent:32}") int maxConcurrent,
+            @Value("${aia.concurrency.max-wait-ms:2000}") long maxWaitMs,
+            @Value("${aia.concurrency.rate-limit-per-second:0}") int rateLimitPerSecond) {
+        List<Guard> guards = new ArrayList<>();
+        if (rateLimitPerSecond > 0) {
+            guards.add(new RateLimitGuard(rateLimitPerSecond));
+        }
+        guards.add(new ConcurrencyGuard("模型", maxConcurrent, maxWaitMs));
+        return new GuardChain(guards);
+    }
+
     @Bean
     public AgentRuntime agentRuntime(ConfigRepository configRepository, ToolRegistry toolRegistry,
                                      ChatModelFactory chatModelFactory, ToolResolver toolResolver,
                                      ObjectProvider<SessionSupport> sessionSupport,
                                      ScenarioSettings scenarioSettings,
-                                     ScenarioRouterFactory scenarioRouterFactory) {
+                                     ScenarioRouterFactory scenarioRouterFactory,
+                                     GuardChain agentGuardChain) {
         SessionSupport base = sessionSupport.getIfAvailable(SessionSupport::disabled);
         // 会话模块没配场景路由时，按 aia.scenarios.strategy 组装
         if (!base.hasScenarioRouter() && scenarioSettings.enabled()) {
             base = base.withScenarioRouter(scenarioRouterFactory.create());
         }
-        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver, base);
+        return new AgentRuntime(configRepository, toolRegistry, chatModelFactory, toolResolver, base,
+                agentGuardChain);
     }
 }

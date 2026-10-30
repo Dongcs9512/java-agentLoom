@@ -23,7 +23,7 @@ public final class RateLimitGuard implements Guard {
                 timestamps.pollFirst();
             }
             if (timestamps.size() >= maxPerSecond) {
-                throw new IllegalStateException("触发限流: " + maxPerSecond + "/s");
+                throw new OverloadedException("触发限流: " + maxPerSecond + "/s");
             }
             timestamps.addLast(now);
         }

@@ -41,4 +41,24 @@ class GuardChainTest {
         chain.execute(ctx, () -> "b");
         assertThrows(IllegalStateException.class, () -> chain.execute(ctx, () -> "c"));
     }
+
+    @Test
+    void earlierGuardIsReleasedWhenLaterGuardRejects() {
+        ConcurrencyGuard first = new ConcurrencyGuard(1, 0);
+        Guard rejecting = new Guard() {
+            @Override
+            public void before(GuardContext ctx) {
+                throw new IllegalStateException("后面的闸门拒绝");
+            }
+
+            @Override
+            public void after(GuardContext ctx, Object result, Throwable error) {
+            }
+        };
+        GuardChain chain = new GuardChain(List.of(first, rejecting));
+
+        assertThrows(IllegalStateException.class, () -> chain.execute(new GuardContext("k"), () -> "ok"));
+
+        assertEquals(1, first.availablePermits(), "前面已占用的许可必须释放，否则会漏光");
+    }
 }
