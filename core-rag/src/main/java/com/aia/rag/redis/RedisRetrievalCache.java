@@ -27,6 +27,7 @@ import java.util.Optional;
 public final class RedisRetrievalCache implements VersionedRetrievalCache, AutoCloseable {
 
     private static final String VERSION_SUFFIX = "__ver";
+    private static final String INVALIDATE_SUFFIX = "__invalidate";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<SearchHit>> HIT_LIST = new TypeReference<>() {};
@@ -122,8 +123,9 @@ public final class RedisRetrievalCache implements VersionedRetrievalCache, AutoC
             if (!batch.isEmpty()) {
                 jedis.del(batch.toArray(new String[0]));
             }
-            // 递增版本号，通知其它实例清掉自己的本地缓存
+            // 递增版本号（兜底），并广播失效消息（实时）
             jedis.incr(versionKey());
+            jedis.publish(invalidationChannel(), "1");
         } catch (RuntimeException e) {
             // 清缓存失败不影响主流程
         }
@@ -131,6 +133,11 @@ public final class RedisRetrievalCache implements VersionedRetrievalCache, AutoC
 
     private String versionKey() {
         return keyPrefix + VERSION_SUFFIX;
+    }
+
+    /** 失效广播频道名，默认由 key 前缀派生，多个实例只要前缀一致就能互相通知。 */
+    public String invalidationChannel() {
+        return keyPrefix + INVALIDATE_SUFFIX;
     }
 
     @Override

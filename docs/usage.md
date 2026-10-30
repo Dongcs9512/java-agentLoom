@@ -939,3 +939,56 @@ B 查询全新问题（对照）        95ms
 代价是**最多 N 毫秒的陈旧窗口**（默认 2 秒），换来每次请求零额外开销——
 版本号只在检查周期到了才读一次 Redis，不是每个请求都读。
 对"知识库更新后几秒内全量生效"的业务来说完全够用；要更实时可以上 Redis Pub/Sub 推送失效。
+
+### 17.12 实时失效：Redis Pub/Sub
+
+版本号轮询有最多 2 秒的陈旧窗口。要更实时可以开广播：
+
+```yaml
+aia:
+  rag:
+    cache:
+      pubsub-enabled: true    # 默认开
+      version-check-ms: 2000  # 轮询保留作为兜底
+```
+
+写入知识库时，除了清空共享缓存，还会向 `aia:retrieval:__invalidate` 频道发一条消息；
+每个实例都有后台订阅线程，收到就立刻清掉自己的本地缓存。**陈旧窗口从秒级降到毫秒级。**
+
+- 订阅使用独立连接和线程，断线自动重连
+- 轮询兜底保留：万一广播期间订阅断过，最多 2 秒后仍会通过版本号纠正
+- 已验证：实例 A 清缓存后约 0.4 秒内，实例 B 的本地缓存即失效
+
+## 18. 优雅下线
+
+滚动发布时最怕的是：进程被杀，正在生成的回答被切断，用户看到半截。
+
+```yaml
+server:
+  shutdown: graceful
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+```
+
+配合健康检查：
+
+```bash
+curl localhost:8080/api/health
+# {"status":"up","uptimeMs":123456}
+```
+
+收到关闭信号后状态立刻变成 `draining`，网关/LB 据此摘流量；在途请求继续跑完。
+
+**验证方式**：发起一个 3 秒的慢请求，0.8 秒后关闭 Spring 上下文——
+请求仍然返回 200 且完整耗时 3 秒。把配置换成 `shutdown: immediate` 再跑，
+请求立刻报 `HTTP/1.1 header parser received no bytes`（连接被掐断），
+证明这个测试确实能区分两种行为。
+
+### 18.1 上线清单
+
+- [ ] `aia.rag.store=es`（多实例必须共用持久化向量库，否则各实例知识不一致）
+- [ ] 会话/答案缓存/检索缓存切 `composite` 或 `redis`
+- [ ] `aia.concurrency.max-concurrent` 按单机承载能力设置
+- [ ] 网关接入 `/api/health`，摘流量后再关进程
+- [ ] 关闭信号用 SIGTERM（K8s 默认），不要用 kill -9

@@ -1,5 +1,11 @@
 server:
   port: 8080
+  # 优雅下线：收到 SIGTERM 后先停止接收新请求，等在途请求跑完再退出
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 aia:
   # 全局共享 HttpClient：避免每次模型调用都重建连接池
@@ -70,8 +76,10 @@ aia:
         port: 6379
         password: ""
         key-prefix: "aia:retrieval:"
-      # composite 模式下多久比对一次共享版本号（别的实例写入后据此清本地缓存）
+      # composite 模式下多久比对一次共享版本号（兜底，广播失败时靠它）
       version-check-ms: 2000
+      # 订阅 Redis 失效广播，实时清掉本地缓存（把陈旧窗口从秒级压到毫秒级）
+      pubsub-enabled: true
     # 同一问题并发时只检索一次
     single-flight-wait-ms: 5000
     chunk-size: 500

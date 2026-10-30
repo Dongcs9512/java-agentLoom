@@ -16,6 +16,7 @@ import com.aia.rag.TextChunker;
 import com.aia.rag.VectorStore;
 import com.aia.rag.openai.OpenAiCompatibleEmbeddingModel;
 import com.aia.rag.openai.OpenAiCompatibleRerankModel;
+import com.aia.rag.redis.RedisInvalidationSubscriber;
 import com.aia.rag.redis.RedisRetrievalCache;
 import com.aia.rag.redis.RedisVectorStore;
 import org.springframework.beans.factory.ObjectProvider;
@@ -32,6 +33,15 @@ import java.net.http.HttpClient;
 @Configuration
 @ConditionalOnProperty(prefix = "aia.rag", name = "enabled", havingValue = "true")
 public class RagConfiguration {
+
+    private RedisInvalidationSubscriber invalidationSubscriber;
+
+    @jakarta.annotation.PreDestroy
+    public void stopInvalidationSubscriber() {
+        if (invalidationSubscriber != null) {
+            invalidationSubscriber.close();
+        }
+    }
 
     @Value("${aia.rag.embedding.provider:}")
     private String embeddingProvider;
@@ -184,18 +194,34 @@ public class RagConfiguration {
             @Value("${aia.rag.cache.redis.port:6379}") int cacheRedisPort,
             @Value("${aia.rag.cache.redis.password:}") String cacheRedisPassword,
             @Value("${aia.rag.cache.redis.key-prefix:aia:retrieval:}") String cacheRedisPrefix,
-            @Value("${aia.rag.cache.version-check-ms:2000}") long cacheVersionCheckMs) {
+            @Value("${aia.rag.cache.version-check-ms:2000}") long cacheVersionCheckMs,
+            @Value("${aia.rag.cache.pubsub-enabled:true}") boolean cachePubSubEnabled) {
         InMemoryRetrievalCache local = new InMemoryRetrievalCache(cacheCapacity, cacheTtlSeconds);
         String type = cacheStore == null ? "memory" : cacheStore.trim().toLowerCase(java.util.Locale.ROOT);
         return switch (type) {
             case "redis" -> new RedisRetrievalCache(requireCacheRedis(cacheRedisHost), cacheRedisPort,
                     cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds);
-            case "composite" -> new CompositeRetrievalCache(local,
-                    new RedisRetrievalCache(requireCacheRedis(cacheRedisHost), cacheRedisPort,
-                            cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds),
-                    cacheVersionCheckMs);
+            case "composite" -> {
+                RedisRetrievalCache shared = new RedisRetrievalCache(requireCacheRedis(cacheRedisHost),
+                        cacheRedisPort, cacheRedisPassword, cacheRedisPrefix, cacheTtlSeconds);
+                startInvalidationSubscriber(cachePubSubEnabled, cacheRedisHost, cacheRedisPort,
+                        cacheRedisPassword, shared.invalidationChannel(), local);
+                yield new CompositeRetrievalCache(local, shared, cacheVersionCheckMs);
+            }
             default -> local;
         };
+    }
+
+    /**
+     * 订阅失效广播：别的实例写入知识库时立刻清掉本地缓存，把陈旧窗口从秒级压到毫秒级。
+     */
+    private void startInvalidationSubscriber(boolean enabled, String host, int port, String password,
+                                             String channel, InMemoryRetrievalCache local) {
+        if (!enabled) {
+            return;
+        }
+        invalidationSubscriber = new RedisInvalidationSubscriber(host, port, password, channel, local::clear);
+        invalidationSubscriber.start();
     }
 
     private static String requireCacheRedis(String host) {
