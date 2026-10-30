@@ -8,6 +8,7 @@ import com.aia.core.ToolResolver;
 import com.aia.llm.openai.OpenAiCompatibleChatModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,7 +23,11 @@ public class AgentConfiguration {
     @Value("${aia.llm.api-key:}")
     private String apiKey;
 
+    /**
+     * 默认内存实现。设 {@code aia.config.mode=jdbc} 时改由 {@link JdbcConfigConfiguration} 提供。
+     */
     @Bean
+    @ConditionalOnProperty(prefix = "aia.config", name = "mode", havingValue = "memory", matchIfMissing = true)
     public ConfigRepository configRepository() {
         return new InMemoryConfigRepository();
     }

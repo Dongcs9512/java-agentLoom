@@ -6,6 +6,7 @@ import com.aia.core.ConfigRepository;
 import com.aia.core.DefaultToolResolver;
 import com.aia.core.Skill;
 import com.aia.core.SkillConfig;
+import com.aia.core.SubAgentTool;
 import com.aia.core.Tool;
 import com.aia.core.ToolRegistry;
 import com.aia.core.ToolResolver;
@@ -39,6 +40,14 @@ public final class AgentRuntime {
 
     public void streamChat(String agentId, String userMessage, java.util.function.Consumer<String> onDelta) {
         buildLoop(agentId).stream(userMessage, onDelta);
+    }
+
+    /**
+     * 把另一个 agent 包装成工具，注册进 {@link ToolRegistry} 后即可被子 agent 委派调用。
+     * 每次调用都会按当前配置重新构建子 agent 的循环，配置热更新后立即生效。
+     */
+    public SubAgentTool subAgentTool(String agentId, String description) {
+        return SubAgentTool.of(agentId, description, () -> buildLoop(agentId));
     }
 
     private AgentLoop buildLoop(String agentId) {

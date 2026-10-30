@@ -231,6 +231,36 @@ repo.saveSkill(new SkillConfig("logistics", "物流", "指令", List.of("query_o
 
 `AgentRuntime` 会从 `ConfigRepository` 加载 agent/skill 并构建 `AgentLoop`。
 
-## 7. 子 agent 编排（预留）
+服务里切到数据库只需改配置（表在启动时自动 `CREATE TABLE IF NOT EXISTS`，无需手工建表）：
 
-`AgentLoop` 是单 agent 循环。子 agent 委派 / 并行编排作为后续扩展点：可新增 `DelegationPolicy` 接口，让 `AgentLoop` 在需要时把任务交给子 `AgentLoop`。当前版本未实现。
+```yaml
+aia:
+  config:
+    mode: jdbc                     # 默认 memory（重启即丢）
+    datasource:
+      url: jdbc:mysql://192.168.5.15:3306/ai_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      username: your_user
+      password: your_password
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      maximum-pool-size: 5
+```
+
+需要用别的库（H2 / PostgreSQL）时只换驱动类与 url。`DataSourceAutoConfiguration` 已被排除，
+只有 `mode=jdbc` 时才会创建数据源，所以不配数据库框架照常启动。
+
+## 7. 子 agent 编排
+
+把另一个 agent 包装成工具，主 agent 在 tool-calling 循环里委派给它：
+
+```java
+AgentRuntime runtime = new AgentRuntime(repo, registry, factory);
+
+registry.register(runtime.subAgentTool("billing", "处理账单、退款、发票相关问题"));
+// 主 agent 现在有一个 delegate_to_billing(task) 工具可用
+```
+
+- 子 agent 用**自己的** system prompt、模型、技能和工具作用域跑一整轮，把最终回答作为工具结果返回。
+- 每次委派都按当前配置重建子 agent，配置改了立即生效。
+- 天然支持多级嵌套；委派深度由 `SubAgentTool` 的 ThreadLocal 计数兜底，超过上限（默认 3）返回错误，
+  避免 A→B→A 互相委派把 token 烧光。
+- 谁能委派谁，同样由第 1.5 节的工具作用域控制：把 `delegate_to_billing` 写进某个 agent 的 `toolNames` 即可。

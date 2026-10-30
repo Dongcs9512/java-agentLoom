@@ -9,6 +9,16 @@ aia:
     # Ollama:   http://localhost:11434/v1
     base-url: ""
     api-key: ""
+  config:
+    # memory: 配置存在内存，重启即丢（默认，适合调试）
+    # jdbc:   配置落数据库，重启不丢（需填下面的 datasource）
+    mode: memory
+    datasource:
+      url: jdbc:mysql://192.168.5.15:3306/ai_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      username: ""
+      password: ""
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      maximum-pool-size: 5
   rag:
     # 为 true 时才装配知识库（未配置向量化服务时保持 false，框架其余功能照常可用）
     enabled: false
