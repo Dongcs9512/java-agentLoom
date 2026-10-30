@@ -8,7 +8,7 @@
 
 **Tech Stack:** 同 M1 + `com.jayway.jsonpath:json-path`（tools-http 用，版本 2.9.0）。
 
-**Spec:** `docs/superpowers/specs/2026-10-30-ai-agent-framework-design.md`（§5、§6.2、§6.3、§6.10、§7、§11 M2）
+**Spec:** `docs/superpowers/specs/2026-10-30-agentloom-design.md`（§5、§6.2、§6.3、§6.10、§7、§11 M2）
 
 ## Global Constraints
 

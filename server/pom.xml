@@ -5,12 +5,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.aia</groupId>
-        <artifactId>ai-agent-framework</artifactId>
+        <groupId>io.github.dongcs9512</groupId>
+        <artifactId>agentloom</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>aia-server</artifactId>
+    <artifactId>agentloom-server</artifactId>
 
     <properties>
         <spring-boot.version>3.3.5</spring-boot.version>
@@ -30,33 +30,33 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.aia</groupId>
-            <artifactId>aia-core</artifactId>
+            <groupId>io.github.dongcs9512</groupId>
+            <artifactId>agentloom-core</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.aia</groupId>
-            <artifactId>aia-core-llm</artifactId>
+            <groupId>io.github.dongcs9512</groupId>
+            <artifactId>agentloom-core-llm</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.aia</groupId>
-            <artifactId>aia-tools-http</artifactId>
+            <groupId>io.github.dongcs9512</groupId>
+            <artifactId>agentloom-tools-http</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.aia</groupId>
-            <artifactId>aia-config-jdbc</artifactId>
+            <groupId>io.github.dongcs9512</groupId>
+            <artifactId>agentloom-config-jdbc</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.aia</groupId>
-            <artifactId>aia-core-rag</artifactId>
+            <groupId>io.github.dongcs9512</groupId>
+            <artifactId>agentloom-core-rag</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.aia</groupId>
-            <artifactId>aia-session-store</artifactId>
+            <groupId>io.github.dongcs9512</groupId>
+            <artifactId>agentloom-session-store</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

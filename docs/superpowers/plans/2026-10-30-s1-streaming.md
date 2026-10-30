@@ -6,7 +6,7 @@
 
 **Architecture:** `core-llm` 加 `ChatChunk` + `ChatModel.stream(request, onChunk)`（默认非流式回退）；`OpenAiCompatibleChatModel` 覆盖为真实 SSE 解析（含 tool_calls 增量累积）；`core` 加 `AgentLoop.stream`；`server` 加 `AgentRuntime.streamChat` + `POST /api/chat/{agentId}/stream`（SseEmitter）。
 
-**Spec:** `docs/superpowers/specs/2026-10-30-ai-agent-framework-design.md`（§6.1、§8）
+**Spec:** `docs/superpowers/specs/2026-10-30-agentloom-design.md`（§6.1、§8）
 
 ## Review Focus
 

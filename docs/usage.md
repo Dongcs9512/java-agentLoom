@@ -147,7 +147,7 @@ VectorStore vectorStore = new ElasticsearchVectorStore(
 
 ```bash
 mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
-         -Daia.es.url=http://192.168.5.15:9200 \
+         -Dagentloom.es.url=http://192.168.5.15:9200 \
          -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
@@ -158,7 +158,7 @@ mvn test -Dtest=ElasticsearchVectorStoreLiveTest \
 ```java
 VectorStore vectorStore = new RedisVectorStore(
     "192.168.5.15", 6379, "password",
-    "aia-kb",                     // Vector Set 的 key
+    "agentloom-kb",                     // Vector Set 的 key
     embedder.dimension());
 ```
 
@@ -170,7 +170,7 @@ VectorStore vectorStore = new RedisVectorStore(
 
 ```bash
 mvn test -Dtest=RedisVectorStoreLiveTest \
-         -Daia.redis.host=192.168.5.15 -Daia.redis.password=xxx \
+         -Dagentloom.redis.host=192.168.5.15 -Dagentloom.redis.password=xxx \
          -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
@@ -210,7 +210,7 @@ registry.register(tool);   // 注册后所有 agent 都能调用 search_knowledg
 `application.yml`：
 
 ```yaml
-aia:
+agentloom:
   rag:
     enabled: true                  # 唯一开关，false 时框架其余功能照常可用
     store: redis                   # memory（默认，重启丢失）/ es / redis
@@ -222,12 +222,12 @@ aia:
       dimension: 0
     es:
       url: http://192.168.5.15:9200
-      index: aia-kb
+      index: agentloom-kb
     redis:
       host: 192.168.5.15
       port: 6379
       password: xxx
-      key: aia-kb
+      key: agentloom-kb
     rerank:
       enabled: true                # 留空即沿用 embedding 的供应商和 key
     chunk-size: 500
@@ -274,7 +274,7 @@ repo.saveSkill(new SkillConfig("logistics", "物流", "指令", List.of("query_o
 服务里切到数据库只需改配置（表在启动时自动 `CREATE TABLE IF NOT EXISTS`，无需手工建表）：
 
 ```yaml
-aia:
+agentloom:
   config:
     mode: jdbc                     # 默认 memory（重启即丢）
     datasource:
@@ -308,7 +308,7 @@ registry.register(runtime.subAgentTool("billing", "处理账单、退款、发�
 ## 8. 模型供应商与功能模型适配
 
 所有模型都走 **OpenAI 兼容协议**，所以一个适配器就能覆盖各家平台，差别只在 baseUrl、模型名和维度。
-内置预设见 `com.aia.llm.provider.Providers`：
+内置预设见 `io.github.dongcs9512.agentloom.llm.provider.Providers`：
 
 | provider | baseUrl | 默认对话模型 | 默认向量模型（维度） | 默认重排模型 |
 |---|---|---|---|---|
@@ -325,7 +325,7 @@ Providers.register(new ProviderPreset(
     "my-gateway", "https://llm.my.com/v1", "gpt-4o", "bge-m3", 1024, "bge-reranker-v2-m3"));
 ```
 
-之后 `aia.llm.provider: my-gateway` / `aia.rag.embedding.provider: my-gateway` 就能直接选它。
+之后 `agentloom.llm.provider: my-gateway` / `agentloom.rag.embedding.provider: my-gateway` 就能直接选它。
 不想用预设时，任何一项都可以显式覆盖（`base-url` / `model` / `dimension` 填了就以填的为准）。
 
 ### 8.1 重排（Rerank）
@@ -333,7 +333,7 @@ Providers.register(new ProviderPreset(
 检索准确率不够时开重排：先按 `topK × 4` 粗召回，再用重排模型收敛到 `topK`。
 
 ```yaml
-aia:
+agentloom:
   rag:
     rerank:
       enabled: true
@@ -410,7 +410,7 @@ RetrievalRouter router = new RuleBasedRetrievalRouter("您好，请问有什么�
 ### 9.5 配置
 
 ```yaml
-aia:
+agentloom:
   session:
     enabled: true
     store: composite          # memory / redis / jdbc / composite
@@ -456,7 +456,7 @@ new AgentConfig("legal-intake", "你是接待顾问…", "deepseek-chat",
 开启演示数据：
 
 ```bash
-java -jar server/target/aia-server-0.1.0-SNAPSHOT.jar --aia.demo.enabled=true
+java -jar server/target/agentloom-server-0.1.0-SNAPSHOT.jar --agentloom.demo.enabled=true
 ```
 
 会创建两个 agent 和一份劳动法知识库：
@@ -491,7 +491,7 @@ curl -X POST localhost:8080/api/chat/legal-intake \
 }
 ```
 
-跑一次（`aia.eval.enabled=true`，`aia.eval.dataset-dir` 默认 `evals`）：
+跑一次（`agentloom.eval.enabled=true`，`agentloom.eval.dataset-dir` 默认 `evals`）：
 
 ```bash
 curl -X POST localhost:8080/api/eval/run -H 'Content-Type: application/json' \
@@ -532,7 +532,7 @@ curl -X POST localhost:8080/api/eval/run -H 'Content-Type: application/json' \
 `/api/eval/run` 的返回里带 `gate` 字段，任一项指标低于阈值即判定为退化：
 
 ```yaml
-aia:
+agentloom:
   eval:
     thresholds:
       retrieval-hit-rate: 0.95
@@ -593,7 +593,7 @@ curl -X POST localhost:8080/api/eval/dialogue -H 'Content-Type: application/json
 接待 agent 收集完信息后，按内容**确定性**地交给对应专业 agent，而不是让模型自己猜找谁。
 
 ```yaml
-aia:
+agentloom:
   scenarios:
     enabled: true
     default-agent: legal-labor
@@ -664,7 +664,7 @@ aia:
 ### 15.2 怎么选
 
 ```yaml
-aia:
+agentloom:
   scenarios:
     strategy: cascade     # keyword / embedding / llm / cascade
     min-score: 3
@@ -778,7 +778,7 @@ curl -X POST localhost:8080/api/eval/cache -H 'Content-Type: application/json' \
 原来 `chatModelFactory` 每次都 `HttpClient.newHttpClient()`，等于每次模型调用都新建连接池、
 重新做 TCP/TLS 握手。高并发下既多几十毫秒，又制造大量 TIME_WAIT。
 
-现在全局复用一个 `HttpClient`（`aia.http.connect-timeout-ms` 可配），聊天/向量化/重排/ES 共用。
+现在全局复用一个 `HttpClient`（`agentloom.http.connect-timeout-ms` 可配），聊天/向量化/重排/ES 共用。
 
 ### 17.2 检索结果缓存（推荐开启）
 
@@ -796,7 +796,7 @@ curl -X POST localhost:8080/api/eval/cache -H 'Content-Type: application/json' \
 知识库写入（新增/更新/删除文档）会自动清空缓存，不会出现"新文档搜不到"。
 
 ```yaml
-aia:
+agentloom:
   rag:
     cache:
       enabled: true
@@ -813,7 +813,7 @@ aia:
 ### 17.4 并发闸门（快速失败）
 
 ```yaml
-aia:
+agentloom:
   concurrency:
     max-concurrent: 32        # 同时最多处理多少个请求
     max-wait-ms: 2000         # 排队最多等多久，等不到就 503
@@ -873,7 +873,7 @@ aia:
 - **只求共享、不在乎那 1ms**：`redis`
 
 ```yaml
-aia:
+agentloom:
   rag:
     cache:
       store: composite        # memory / redis / composite
@@ -882,7 +882,7 @@ aia:
       redis:
         host: 192.168.5.15
         password: xxx
-        key-prefix: "aia:retrieval:"
+        key-prefix: "agentloom:retrieval:"
 ```
 
 实测跨进程：重启后 L1 为空，第一个问题直接从 Redis 回源（14ms），
@@ -894,7 +894,7 @@ aia:
 多实例部署时，一台机器写入会清掉所有人的缓存。这是**正确**的（否则新文档搜不到），
 但要避免频繁触发：
 
-- 生产上**务必用持久化向量库**（`aia.rag.store=es`）。
+- 生产上**务必用持久化向量库**（`agentloom.rag.store=es`）。
   用 `memory` 的话每次重启都要重新灌知识库，等于每次重启都清空一次共享缓存
 - 批量导入文档时集中在低峰期，或导入后短暂预热
 
@@ -930,8 +930,8 @@ B 查询全新问题（对照）        95ms
 
 修复方案是**版本号 + 定期比对**：
 
-- 共享缓存（Redis）维护一个 `aia:retrieval:__ver`，每次 `clear()` 递增
-- 每个实例每 `aia.rag.cache.version-check-ms`（默认 2000ms）比对一次版本号
+- 共享缓存（Redis）维护一个 `agentloom:retrieval:__ver`，每次 `clear()` 递增
+- 每个实例每 `agentloom.rag.cache.version-check-ms`（默认 2000ms）比对一次版本号
 - 发现变化就清掉自己的 L1
 
 修复后同一测试：A 写入 → 1.2 秒后 B 再查 = **96ms**（重新检索），不再是 2ms 的旧数据。
@@ -945,14 +945,14 @@ B 查询全新问题（对照）        95ms
 版本号轮询有最多 2 秒的陈旧窗口。要更实时可以开广播：
 
 ```yaml
-aia:
+agentloom:
   rag:
     cache:
       pubsub-enabled: true    # 默认开
       version-check-ms: 2000  # 轮询保留作为兜底
 ```
 
-写入知识库时，除了清空共享缓存，还会向 `aia:retrieval:__invalidate` 频道发一条消息；
+写入知识库时，除了清空共享缓存，还会向 `agentloom:retrieval:__invalidate` 频道发一条消息；
 每个实例都有后台订阅线程，收到就立刻清掉自己的本地缓存。**陈旧窗口从秒级降到毫秒级。**
 
 - 订阅使用独立连接和线程，断线自动重连
@@ -987,9 +987,9 @@ curl localhost:8080/api/health
 
 ### 18.1 上线清单
 
-- [ ] `aia.rag.store=es`（多实例必须共用持久化向量库，否则各实例知识不一致）
+- [ ] `agentloom.rag.store=es`（多实例必须共用持久化向量库，否则各实例知识不一致）
 - [ ] 会话/答案缓存/检索缓存切 `composite` 或 `redis`
-- [ ] `aia.concurrency.max-concurrent` 按单机承载能力设置
+- [ ] `agentloom.concurrency.max-concurrent` 按单机承载能力设置
 - [ ] 网关接入 `/api/health`，摘流量后再关进程
 - [ ] 关闭信号用 SIGTERM（K8s 默认），不要用 kill -9
 
@@ -1011,10 +1011,10 @@ curl localhost:8080/actuator/prometheus
 
 | 指标 | 类型 | 说明 |
 |---|---|---|
-| `aia_agent_chat_seconds` | Timer | 一次问答耗时，标签 `agent` / `outcome`(ok/error) / `stream` |
-| `aia_rag_search_seconds` | Timer | 检索耗时（向量化 + 检索 + 重排），标签 `rerank` |
-| `aia_cache_retrieval_total` | Counter | 检索缓存命中/未命中，标签 `result`(hit/miss) |
-| `aia_guard_rejected_total` | Counter | 因并发饱和/限流被拒的请求数 |
+| `agentloom_agent_chat_seconds` | Timer | 一次问答耗时，标签 `agent` / `outcome`(ok/error) / `stream` |
+| `agentloom_rag_search_seconds` | Timer | 检索耗时（向量化 + 检索 + 重排），标签 `rerank` |
+| `agentloom_cache_retrieval_total` | Counter | 检索缓存命中/未命中，标签 `result`(hit/miss) |
+| `agentloom_guard_rejected_total` | Counter | 因并发饱和/限流被拒的请求数 |
 
 核心库不依赖 Micrometer：`MetricsRecorder` 是纯接口，默认空实现；
 Spring 侧 `MicrometerMetricsRecorder` 把它接到 `MeterRegistry`。
@@ -1023,10 +1023,10 @@ Spring 侧 `MicrometerMetricsRecorder` 把它接到 `MeterRegistry`。
 ### 19.2 实测输出
 
 ```
-aia_cache_retrieval_total{result="hit"}  2.0
-aia_cache_retrieval_total{result="miss"} 6.0
-aia_agent_chat_seconds_count{agent="legal-labor",outcome="ok"} 1
-aia_guard_rejected_total 1.0
+agentloom_cache_retrieval_total{result="hit"}  2.0
+agentloom_cache_retrieval_total{result="miss"} 6.0
+agentloom_agent_chat_seconds_count{agent="legal-labor",outcome="ok"} 1
+agentloom_guard_rejected_total 1.0
 ```
 
 （并发上限设为 1，同时打两个聊天请求：一个 200、一个 503，过载计数如实 +1。）
@@ -1035,10 +1035,10 @@ aia_guard_rejected_total 1.0
 
 | 告警 | 条件 | 含义 |
 |---|---|---|
-| 缓存命中率过低 | `rate(aia_cache_retrieval_total{result="hit"}[5m]) / rate(aia_cache_retrieval_total[5m]) < 0.3` | 缓存没起作用或知识库在频繁写入 |
-| 过载拒绝持续 | `rate(aia_guard_rejected_total[5m]) > 0` 持续 10 分钟 | 单机扛不住，该扩容或调 `max-concurrent` |
-| 问答变慢 | `histogram_quantile(0.95, rate(aia_agent_chat_seconds_bucket[5m])) > 10` | 模型侧或检索侧退化 |
-| 错误率升高 | `rate(aia_agent_chat_seconds_count{outcome="error"}[5m]) > 0` | 模型/网络异常 |
+| 缓存命中率过低 | `rate(agentloom_cache_retrieval_total{result="hit"}[5m]) / rate(agentloom_cache_retrieval_total[5m]) < 0.3` | 缓存没起作用或知识库在频繁写入 |
+| 过载拒绝持续 | `rate(agentloom_guard_rejected_total[5m]) > 0` 持续 10 分钟 | 单机扛不住，该扩容或调 `max-concurrent` |
+| 问答变慢 | `histogram_quantile(0.95, rate(agentloom_agent_chat_seconds_bucket[5m])) > 10` | 模型侧或检索侧退化 |
+| 错误率升高 | `rate(agentloom_agent_chat_seconds_count{outcome="error"}[5m]) > 0` | 模型/网络异常 |
 
 ### 19.4 还缺什么
 
@@ -1052,15 +1052,15 @@ aia_guard_rejected_total 1.0
 
 | 指标 | 标签 | 用途 |
 |---|---|---|
-| `aia_llm_calls_total` | `model` / `stream` | 模型调用次数，直接对应计费次数 |
-| `aia_llm_tokens_total` | `model` / `type`(prompt/completion) | token 消耗，按输入/输出分开 |
-| `aia_cache_retrieval_level_total` | `level`(l1/l2) | 检索缓存命中在内存还是 Redis |
-| `aia_cache_retrieval_total` | `result`(hit/miss) | 检索缓存整体命中率 |
-| `aia_answer_cache_total` | `result`(hit/miss) | 答案缓存命中率 |
-| `aia_scenario_dispatch_total` | `agent` / `source`(tool/auto) | 各专业方向被分派次数 |
-| `aia_stage_decision_total` | `decision`(CANNED/DIRECT/RETRIEVE) | 检索路由决策分布 |
-| `aia_stage_seconds` | `stage`(route/cache/compress) | 各阶段耗时 |
-| `aia_guard_rejected_total` | — | 过载拒绝数 |
+| `agentloom_llm_calls_total` | `model` / `stream` | 模型调用次数，直接对应计费次数 |
+| `agentloom_llm_tokens_total` | `model` / `type`(prompt/completion) | token 消耗，按输入/输出分开 |
+| `agentloom_cache_retrieval_level_total` | `level`(l1/l2) | 检索缓存命中在内存还是 Redis |
+| `agentloom_cache_retrieval_total` | `result`(hit/miss) | 检索缓存整体命中率 |
+| `agentloom_answer_cache_total` | `result`(hit/miss) | 答案缓存命中率 |
+| `agentloom_scenario_dispatch_total` | `agent` / `source`(tool/auto) | 各专业方向被分派次数 |
+| `agentloom_stage_decision_total` | `decision`(CANNED/DIRECT/RETRIEVE) | 检索路由决策分布 |
+| `agentloom_stage_seconds` | `stage`(route/cache/compress) | 各阶段耗时 |
+| `agentloom_guard_rejected_total` | — | 过载拒绝数 |
 
 **`source` 标签很重要**：`tool` 表示模型主动调了分派工具，`auto` 表示框架在必填槽位齐了之后
 确定性接管。这个比例能告诉你模型靠不靠得住——`auto` 占比高说明模型经常忘记调工具。
@@ -1068,33 +1068,33 @@ aia_guard_rejected_total 1.0
 实测输出：
 
 ```
-aia_llm_calls_total{model="deepseek-chat",stream="false"} 7.0
-aia_llm_tokens_total{model="deepseek-chat",type="prompt"} 10775.0
-aia_llm_tokens_total{model="deepseek-chat",type="completion"} 3839.0
-aia_scenario_dispatch_total{agent="legal-labor",source="tool"} 1.0
-aia_cache_retrieval_level_total{level="l1"} 1.0
-aia_cache_retrieval_level_total{level="l2"} 1.0
-aia_stage_seconds_count{stage="route"} 2
-aia_stage_seconds_count{stage="cache"} 1
-aia_stage_seconds_count{stage="compress"} 1
+agentloom_llm_calls_total{model="deepseek-chat",stream="false"} 7.0
+agentloom_llm_tokens_total{model="deepseek-chat",type="prompt"} 10775.0
+agentloom_llm_tokens_total{model="deepseek-chat",type="completion"} 3839.0
+agentloom_scenario_dispatch_total{agent="legal-labor",source="tool"} 1.0
+agentloom_cache_retrieval_level_total{level="l1"} 1.0
+agentloom_cache_retrieval_level_total{level="l2"} 1.0
+agentloom_stage_seconds_count{stage="route"} 2
+agentloom_stage_seconds_count{stage="cache"} 1
+agentloom_stage_seconds_count{stage="compress"} 1
 ```
 
 ### 19.6 成本估算 PromQL
 
 ```promql
 # 近 1 小时 token 总量
-sum by (type) (increase(aia_llm_tokens_total[1h]))
+sum by (type) (increase(agentloom_llm_tokens_total[1h]))
 
 # 按 DeepSeek 定价粗算成本（输入 1 元/百万 token、输出 2 元/百万 —— 以实际价格为准）
-sum(increase(aia_llm_tokens_total{type="prompt"}[1h])) / 1e6 * 1
-+ sum(increase(aia_llm_tokens_total{type="completion"}[1h])) / 1e6 * 2
+sum(increase(agentloom_llm_tokens_total{type="prompt"}[1h])) / 1e6 * 1
++ sum(increase(agentloom_llm_tokens_total{type="completion"}[1h])) / 1e6 * 2
 
 # 单次问答平均 token
-sum(rate(aia_llm_tokens_total[5m])) / sum(rate(aia_agent_chat_seconds_count[5m]))
+sum(rate(agentloom_llm_tokens_total[5m])) / sum(rate(agentloom_agent_chat_seconds_count[5m]))
 
 # 关键词路由 / 缓存替用户省下的模型调用
-sum(rate(aia_stage_decision_total{decision="CANNED"}[5m]))
-+ sum(rate(aia_answer_cache_total{result="hit"}[5m]))
+sum(rate(agentloom_stage_decision_total{decision="CANNED"}[5m]))
++ sum(rate(agentloom_answer_cache_total{result="hit"}[5m]))
 ```
 
 ### 19.7 已知限制

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Java 17（JDK 21 编译、`--release 17`）、Maven 3.9.16、JUnit 5、Jackson `jackson-databind`、JDK 内置 `HttpClient` 与 `com.sun.net.httpserver.HttpServer`（测试用 mock）。
 
-**Spec:** `docs/superpowers/specs/2026-10-30-ai-agent-framework-design.md`（§4、§5、§6.1、§6.2、§11 M1）
+**Spec:** `docs/superpowers/specs/2026-10-30-agentloom-design.md`（§4、§5、§6.1、§6.2、§11 M1）
 
 ## Global Constraints
 

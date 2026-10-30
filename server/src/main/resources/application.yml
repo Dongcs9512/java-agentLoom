@@ -18,13 +18,13 @@ management:
       show-details: when-authorized
   metrics:
     tags:
-      application: ai-agent-framework
+      application: agentloom
     distribution:
       percentiles-histogram:
-        aia.agent.chat: true
-        aia.rag.search: true
+        agentloom.agent.chat: true
+        agentloom.rag.search: true
 
-aia:
+agentloom:
   # 全局共享 HttpClient：避免每次模型调用都重建连接池
   http:
     connect-timeout-ms: 5000

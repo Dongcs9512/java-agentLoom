@@ -1,0 +1,26 @@
+[Unit]
+Description=AgentLoom AI Agent Server
+After=network.target
+
+[Service]
+Type=simple
+User=agentloom
+WorkingDirectory=/opt/agentloom
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /opt/agentloom/agentloom-server.jar --spring.profiles.active=prod
+# SIGTERM 会让 Spring 走优雅下线：停止接新请求 → 在途请求跑完 → 退出
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+Environment="AGENTLOOM_LLM_PROVIDER=deepseek"
+Environment="AGENTLOOM_LLM_API_KEY=请用环境变量文件替换"
+EnvironmentFile=-/etc/agentloom/env
+
+Restart=on-failure
+RestartSec=5
+SuccessExitStatus=143
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

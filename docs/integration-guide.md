@@ -8,7 +8,7 @@
 
 | 形态 | 适用 | 依赖 | 代价 |
 |---|---|---|---|
-| **单体引 jar** | 已有 Spring Boot 项目想加个 AI 功能 | `aia-core` + `aia-core-llm` | 无额外进程，随你的服务一起发布 |
+| **单体引 jar** | 已有 Spring Boot 项目想加个 AI 功能 | `agentloom-core` + `agentloom-core-llm` | 无额外进程，随你的服务一起发布 |
 | **独立服务** | 多个项目要共用一套 AI 能力 | `server` 模块打出来的 jar | 多一个服务要运维，调用方改走 HTTP |
 | **混合** | 核心逻辑在单体内，知识库/多 agent 独立 | 两者都引 | 最灵活，也最复杂 |
 
@@ -21,20 +21,20 @@
 
 | 模块 | 内容 | 什么时候需要 |
 |---|---|---|
-| `aia-core-llm` | `ChatModel` SPI + OpenAI 兼容适配器 + 供应商预设 | **必选** |
-| `aia-core` | Agent 循环、工具、技能、会话、压缩、路由、编排、防护 | **必选** |
-| `aia-core-rag` | 分片、向量化、向量库（ES/Redis/内存）、重排、检索缓存 | 需要知识库时 |
-| `aia-tools-http` | 声明式 HTTP 工具 + JWT/HMAC 鉴权 | 要调微服务/第三方接口时 |
-| `aia-config-jdbc` | agent/skill 配置存数据库 | 要动态改配置时 |
-| `aia-session-store` | 会话与答案缓存的 Redis/JDBC 实现 | 要多轮会话且要持久化时 |
-| `aia-server` | Spring Boot 服务壳 + REST 接口 | 要独立部署时 |
+| `agentloom-core-llm` | `ChatModel` SPI + OpenAI 兼容适配器 + 供应商预设 | **必选** |
+| `agentloom-core` | Agent 循环、工具、技能、会话、压缩、路由、编排、防护 | **必选** |
+| `agentloom-core-rag` | 分片、向量化、向量库（ES/Redis/内存）、重排、检索缓存 | 需要知识库时 |
+| `agentloom-tools-http` | 声明式 HTTP 工具 + JWT/HMAC 鉴权 | 要调微服务/第三方接口时 |
+| `agentloom-config-jdbc` | agent/skill 配置存数据库 | 要动态改配置时 |
+| `agentloom-session-store` | 会话与答案缓存的 Redis/JDBC 实现 | 要多轮会话且要持久化时 |
+| `agentloom-server` | Spring Boot 服务壳 + REST 接口 | 要独立部署时 |
 
 Maven 坐标（先 `mvn install` 装到本地仓库）：
 
 ```xml
 <dependency>
-    <groupId>com.aia</groupId>
-    <artifactId>aia-core</artifactId>
+    <groupId>io.github.dongcs9512.agentloom</groupId>
+    <artifactId>agentloom-core</artifactId>
     <version>0.1.0-SNAPSHOT</version>
 </dependency>
 ```
@@ -161,13 +161,13 @@ new AgentRuntime(repo, tools, factory, resolver, support, guards, metrics);
 ### 5.1 最小配置
 
 ```yaml
-aia:
+agentloom:
   llm:
     provider: deepseek        # deepseek/dashscope/siliconflow/openai/ollama
     api-key: ${LLM_API_KEY}
 ```
 
-然后注入 `AgentRuntime` 直接用。或者把 `aia-server` 当依赖，得到现成的 REST 接口。
+然后注入 `AgentRuntime` 直接用。或者把 `agentloom-server` 当依赖，得到现成的 REST 接口。
 
 ### 5.2 全量配置模板
 
@@ -194,10 +194,10 @@ aia:
 
 ## 6. 上线检查清单
 
-- [ ] 向量库用 **ES**（`aia.rag.store=es`）——多实例必须共用，否则各实例知识不一致
+- [ ] 向量库用 **ES**（`agentloom.rag.store=es`）——多实例必须共用，否则各实例知识不一致
 - [ ] 会话/答案缓存/检索缓存切 `composite` 或 `redis`
-- [ ] `aia.concurrency.max-concurrent` 按单机承载能力设置（先用压测定）
-- [ ] `aia.rag.store` 与 `aia.rag.cache.redis.*` 指向同一套 Redis 集群
+- [ ] `agentloom.concurrency.max-concurrent` 按单机承载能力设置（先用压测定）
+- [ ] `agentloom.rag.store` 与 `agentloom.rag.cache.redis.*` 指向同一套 Redis 集群
 - [ ] 网关接 `/api/health`，摘流量后再关进程（`server.shutdown=graceful`）
 - [ ] 配 Prometheus 抓取 `/actuator/prometheus`，接上缓存命中率/过载拒绝/成本告警
 - [ ] 用评测集跑一次基线，之后每次改模型或提示词都重跑

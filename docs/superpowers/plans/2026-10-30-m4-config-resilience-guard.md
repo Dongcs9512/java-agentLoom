@@ -8,7 +8,7 @@
 
 **Tech Stack:** 同前 + `com.h2database:h2`（config-jdbc test scope，版本 2.2.224）。Jackson 用于列表字段 JSON 序列化。
 
-**Spec:** `docs/superpowers/specs/2026-10-30-ai-agent-framework-design.md`（§5、§6.5、§6.6、§6.7、§11 M4）
+**Spec:** `docs/superpowers/specs/2026-10-30-agentloom-design.md`（§5、§6.5、§6.6、§6.7、§11 M4）
 
 ## Global Constraints
 

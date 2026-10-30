@@ -1,0 +1,98 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: agentloom-server:0.1.0
+    container_name: agentloom-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      AGENTLOOM_LLM_PROVIDER: ${AGENTLOOM_LLM_PROVIDER:-deepseek}
+      AGENTLOOM_LLM_API_KEY: ${AGENTLOOM_LLM_API_KEY:?请先在 .env 里填 AGENTLOOM_LLM_API_KEY}
+      AGENTLOOM_EMBEDDING_PROVIDER: ${AGENTLOOM_EMBEDDING_PROVIDER:-siliconflow}
+      AGENTLOOM_EMBEDDING_API_KEY: ${AGENTLOOM_EMBEDDING_API_KEY:-}
+      AGENTLOOM_CONFIG_MODE: jdbc
+      AGENTLOOM_CONFIG_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      AGENTLOOM_CONFIG_DATASOURCE_USERNAME: ${MYSQL_USER:-agentloom}
+      AGENTLOOM_CONFIG_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?请先在 .env 里填 MYSQL_PASSWORD}
+      AGENTLOOM_RAG_ENABLED: "true"
+      AGENTLOOM_RAG_STORE: es
+      AGENTLOOM_RAG_ES_URL: http://es:9200
+      AGENTLOOM_RAG_CACHE_STORE: composite
+      AGENTLOOM_RAG_CACHE_REDIS_HOST: redis
+      AGENTLOOM_RAG_CACHE_REDIS_PASSWORD: ${REDIS_PASSWORD:?请先在 .env 里填 REDIS_PASSWORD}
+      AGENTLOOM_SESSION_ENABLED: "true"
+      AGENTLOOM_SESSION_STORE: composite
+      AGENTLOOM_SESSION_REDIS_HOST: redis
+      AGENTLOOM_SESSION_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AGENTLOOM_CONCURRENCY_MAX_CONCURRENT: ${MAX_CONCURRENT:-32}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:8080/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 40s   # 必须 >= spring.lifecycle.timeout-per-shutdown-phase
+
+  mysql:
+    image: mysql:8.4
+    container_name: agentloom-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请先在 .env 里填 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ai_agent
+      MYSQL_USER: ${MYSQL_USER:-agentloom}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8.2
+    container_name: agentloom-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.16.3
+    container_name: agentloom-es
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.ml.enabled=false
+    mem_limit: 1g
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
+  redis-data:
+  es-data:

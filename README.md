@@ -1,12 +1,22 @@
-# AI Agent 通用底座框架
+# AgentLoom · AI Agent 通用底座框架
 
 一个可复用的 Java 模块，作为「AI 客服 / AI Agent」的通用底层。**自己就是 agent 运行时**，直接调用大模型 API，
 内置 agent 管理、技能、RAG 知识库、多轮会话、场景分派、并发防护与可观测性。
 
-- **接入指南**：[`docs/integration-guide.md`](docs/integration-guide.md) ← 想把它用到自己项目里，先看这个
-- 详细用法：[`docs/usage.md`](docs/usage.md)
-- 设计文档：[`docs/superpowers/specs/2026-10-30-ai-agent-framework-design.md`](docs/superpowers/specs/2026-10-30-ai-agent-framework-design.md)
-- Java 17+ / Maven 多模块 / **核心库零 Spring 依赖**
+## 文档导航
+
+| 文档 | 什么时候看 |
+|---|---|
+| [项目详情](docs/overview.md) | 想评估这个项目、了解设计取舍与已知限制 |
+| [接入指南](docs/integration-guide.md) | **想把它用到自己项目里，先看这个** |
+| [使用案例](docs/use-cases.md) | 不确定适不适合你的场景，或想看别人怎么用 |
+| [部署指南](docs/deployment.md) | 要上线：Docker、Nginx、多实例、监控、备份 |
+| [详细用法](docs/usage.md) | 查具体 API 和配置项 |
+| [设计文档](docs/superpowers/specs/2026-10-30-agentloom-design.md) | 想了解当初为什么这么设计 |
+
+[github.com/Dongcs9512/java-agentLoom](https://github.com/Dongcs9512/java-agentLoom)
+
+Java 17+ / Maven 多模块 / **核心库零 Spring 依赖** / [Apache-2.0](LICENSE)
 
 ## 30 秒理解
 
@@ -40,17 +50,17 @@ new AgentLoop(model, tools, "你是电商客服").run("订单 A123 到哪了");
 mvn test          # 全量测试
 mvn install       # 装到本地仓库，供其它项目引用
 
-java -jar server/target/aia-server-0.1.0-SNAPSHOT.jar \
-  --aia.llm.provider=deepseek --aia.llm.api-key=sk-xxx \
-  --aia.rag.enabled=true --aia.rag.embedding.provider=siliconflow --aia.rag.embedding.api-key=sk-yyy
+java -jar server/target/agentloom-server-0.1.0-SNAPSHOT.jar \
+  --agentloom.llm.provider=deepseek --agentloom.llm.api-key=sk-xxx \
+  --agentloom.rag.enabled=true --agentloom.rag.embedding.provider=siliconflow --agentloom.rag.embedding.api-key=sk-yyy
 ```
 
 跑示例（不依赖 Spring）：
 
 ```bash
-export AIA_API_KEY=sk-xxx
+export AGENTLOOM_API_KEY=sk-xxx
 mvn -pl examples/minimal-agent dependency:build-classpath -Dmdep.outputFile=cp.txt
-java -cp "examples/minimal-agent/target/classes;$(cat examples/minimal-agent/cp.txt)" com.aia.example.AgentDemo
+java -cp "examples/minimal-agent/target/classes;$(cat examples/minimal-agent/cp.txt)" io.github.dongcs9512.agentloom.example.AgentDemo
 ```
 
 ## REST API
@@ -92,3 +102,20 @@ java -cp "examples/minimal-agent/target/classes;$(cat examples/minimal-agent/cp.
 ## 测试环境
 
 飞牛 OS（fnOS）`192.168.5.15:5666`，已有 MySQL、Redis、Elasticsearch（账号见项目根目录 `通用信息.txt`，勿提交）。
+
+## 许可证
+
+[Apache License 2.0](LICENSE)。
+
+可以自由地用于**商业闭源项目**、修改、分发、再许可。要求：
+
+- 保留 `LICENSE` 与 [`NOTICE`](NOTICE) 文件
+- 修改过的文件要标注「已修改」
+- 不能使用项目名或作者名做背书
+
+如果你的产品需要标注来源，可以写：
+
+> Powered by AgentLoom (Apache-2.0)
+
+相比 MIT，Apache-2.0 额外提供了**专利授权**（贡献者的专利不会反过来起诉使用者），
+所以企业法务通常更容易接受。
