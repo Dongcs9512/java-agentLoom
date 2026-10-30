@@ -59,4 +59,28 @@ class SlotPromptBuilderTest {
         assertTrue(status.contains("incident"), status);
         assertTrue(status.contains("when"), status);
     }
+
+    @Test
+    void optionalSlotsLeftDoNotBlockConclusion() {
+        Session session = new Session("s1", "a1");
+        session.putSlot("incident", "被欠薪三个月");
+        session.putSlot("when", "今年七月");
+
+        String prompt = SlotPromptBuilder.build(SLOTS, session);
+
+        assertTrue(prompt.contains("可以"), prompt);
+        assertTrue(prompt.contains("分析"), prompt);
+        assertFalse(prompt.contains("收集齐之前不要下结论"),
+                "只剩可选槽位时不应再阻止下结论: " + prompt);
+    }
+
+    @Test
+    void requiredSlotsLeftStillBlockConclusion() {
+        Session session = new Session("s1", "a1");
+        session.putSlot("incident", "被欠薪");
+
+        String prompt = SlotPromptBuilder.build(SLOTS, session);
+
+        assertTrue(prompt.contains("收集齐之前不要下结论"), prompt);
+    }
 }

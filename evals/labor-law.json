@@ -165,5 +165,33 @@
       "expectedDocIds": ["work-injury-filing"],
       "expectedKeywords": ["三十日", "一年"]
     }
+  ],
+  "dialogues": [
+    {
+      "id": "labor-dismissal-full",
+      "agentId": "legal-intake",
+      "requiredSlots": ["incident", "when", "location"],
+      "finalExpectedKeywords": ["违法解除", "仲裁", "2N"],
+      "note": "接待 agent 逐轮收集信息，最后委派律师给出分析",
+      "turns": [
+        { "user": "公司把我辞退了", "expectKeywords": ["事"] },
+        { "user": "上周五口头让我走的，没有书面通知", "expectKeywords": ["城市", "哪里"] },
+        { "user": "在杭州，签了三年合同，干了两年半", "expectKeywords": ["经过", "合同"] },
+        { "user": "就是突然说公司决定让我走，没说原因", "expectKeywords": ["赔偿", "仲裁"] }
+      ]
+    },
+    {
+      "id": "wage-arrears-full",
+      "agentId": "legal-intake",
+      "requiredSlots": ["incident", "when", "location"],
+      "finalExpectedKeywords": ["仲裁", "工资", "支付令"],
+      "note": "欠薪场景：收集信息后应给出仲裁与支付令建议",
+      "turns": [
+        { "user": "公司拖欠我三个月工资了", "expectKeywords": ["什么时候"] },
+        { "user": "从今年七月开始就没发", "expectKeywords": ["城市", "哪里"] },
+        { "user": "在深圳，公司还在正常经营", "expectKeywords": ["工资"] },
+        { "user": "我每个月八千，有工资条和聊天记录", "expectKeywords": ["仲裁"] }
+      ]
+    }
   ]
 }

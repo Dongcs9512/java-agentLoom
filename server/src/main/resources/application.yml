@@ -92,3 +92,8 @@ aia:
     enabled: false
     dataset-dir: evals
     top-k: 5
+    # 回归门禁阈值：任一项低于阈值即判定为退化
+    thresholds:
+      retrieval-hit-rate: 0.95
+      keyword-coverage: 0.85
+      pass-rate: 0.90

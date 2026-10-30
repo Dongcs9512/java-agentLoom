@@ -526,3 +526,64 @@ curl -X POST localhost:8080/api/eval/run -H 'Content-Type: application/json' \
 ```
 
 改动模型、切分参数、换向量库或改提示词后重跑这一条，就能立刻看出有没有退化。
+
+### 12.3 回归门禁
+
+`/api/eval/run` 的返回里带 `gate` 字段，任一项指标低于阈值即判定为退化：
+
+```yaml
+aia:
+  eval:
+    thresholds:
+      retrieval-hit-rate: 0.95
+      keyword-coverage: 0.85
+      pass-rate: 0.90
+```
+
+```json
+{ "gate": { "passed": false, "violations": ["检索命中率 80% 低于阈值 95%"] } }
+```
+
+`violations` 会列出**所有**掉线项，不是只报第一个——一眼能看出是哪一环退化了。
+改模型、调 chunk 参数、换向量库后跑一次，`passed=false` 就说明这次改动把效果做坏了。
+
+### 12.4 多轮对话评测
+
+单轮评测测不到会话、槽位和委派，所以数据集里还有 `dialogues`：
+
+```json
+"dialogues": [{
+  "id": "labor-dismissal-full",
+  "agentId": "legal-intake",
+  "requiredSlots": ["incident", "when", "location"],
+  "finalExpectedKeywords": ["违法解除", "仲裁", "2N"],
+  "turns": [
+    { "user": "公司把我辞退了", "expectKeywords": ["事"] },
+    { "user": "上周五口头让我走的，没有书面通知", "expectKeywords": ["城市"] },
+    ...
+  ]
+}]
+```
+
+```bash
+curl -X POST localhost:8080/api/eval/dialogue -H 'Content-Type: application/json' \
+  -d '{"dataset":"labor-law","ingest":false}'
+```
+
+判定：**必填槽位全部收集** 且 **整段对话的回答覆盖 ≥60% 的关键事实**。每组对话用独立的内存会话，互不干扰。
+
+两个实测中踩过的坑，值得记住：
+
+1. **不能只看最后一轮的回答**。分析往往在第 3 轮就给出了，第 4 轮只是追问补充信息；只看末轮会把答对的判成没答。
+   现在按整段对话拼接后统一算覆盖。
+2. **关键词要选措辞稳定的**。「赔偿」不如「违法解除 / 2N / 仲裁」稳——模型常用具体术语而不说笼统词。
+   留 3 个关键词、阈值 60%，允许漏一个，避免单次措辞差异导致误判。
+
+### 12.5 当前基线
+
+| 评测 | 结果 |
+|---|---|
+| 单轮（15 题） | 检索命中 100%，关键词覆盖 100%，门禁 passed=true |
+| 多轮（2 组对话） | 通过率 100%，平均槽位完成度 100% |
+
+> 多轮评测样本还少（2 组），单次通过率受模型措辞波动影响。建议后续补到 6~8 组再当硬门禁用。

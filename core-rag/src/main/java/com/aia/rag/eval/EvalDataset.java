@@ -17,7 +17,8 @@ public record EvalDataset(
         String note,
         List<String> sources,
         List<Document> documents,
-        List<EvalCase> cases) {
+        List<EvalCase> cases,
+        List<DialogueCase> dialogues) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Document(String docId, String text) {
@@ -27,6 +28,7 @@ public record EvalDataset(
         sources = sources == null ? List.of() : List.copyOf(sources);
         documents = documents == null ? List.of() : List.copyOf(documents);
         cases = cases == null ? List.of() : List.copyOf(cases);
+        dialogues = dialogues == null ? List.of() : List.copyOf(dialogues);
     }
 
     public static EvalDataset load(Path path) {

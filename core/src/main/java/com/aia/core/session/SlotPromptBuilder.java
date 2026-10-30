@@ -39,15 +39,24 @@ public final class SlotPromptBuilder {
         }
 
         List<Slot> missing = missing(slots, session);
-        if (!missing.isEmpty()) {
-            sb.append("\n还缺下列信息，请先用一句话向用户询问（一次只问一到两项，不要一次全抛出来）：");
-            for (Slot slot : missing) {
+        List<Slot> missingRequired = new ArrayList<>();
+        List<Slot> missingOptional = new ArrayList<>();
+        for (Slot slot : missing) {
+            (slot.required() ? missingRequired : missingOptional).add(slot);
+        }
+
+        if (!missingRequired.isEmpty()) {
+            sb.append("\n还缺下列必填信息，请先用一句话向用户询问（一次只问一到两项，不要一次全抛出来）：");
+            for (Slot slot : missingRequired) {
                 sb.append("\n- ").append(slot.name()).append("：").append(slot.ask());
-                if (!slot.required()) {
-                    sb.append("（可选）");
-                }
             }
-            sb.append("\n用户回答后必须调用 record_case_info 记录，收集齐之前不要下结论。");
+            sb.append("\n用户回答后必须调用 record_case_info 记录，必填信息收集齐之前不要下结论。");
+        } else if (!missingOptional.isEmpty()) {
+            // 只剩可选信息时不能继续追问，否则会卡在收集阶段给不出结论
+            sb.append("\n必填信息已收集完整，可以直接结合知识与已收集的信息给出分析和建议。");
+            sb.append("\n可选信息（");
+            sb.append(String.join("、", missingOptional.stream().map(Slot::name).toList()));
+            sb.append("）如果用户没有主动提供，不必再追问。");
         } else {
             sb.append("\n信息已收集完整，可以结合知识与已收集信息给出分析和建议。");
         }

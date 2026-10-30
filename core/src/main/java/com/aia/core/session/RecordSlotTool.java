@@ -76,12 +76,13 @@ public final class RecordSlotTool extends AbstractTool {
         session.putSlot(slotName, String.valueOf(rawValue).trim());
 
         String status = SlotPromptBuilder.statusOf(slots, session);
-        List<Slot> missing = SlotPromptBuilder.missing(slots, session);
-        if (missing.isEmpty()) {
-            return ToolResult.ok("已记录 " + slotName + "。" + status + "。信息已收集齐，可以给出分析和建议了。");
+        List<Slot> missingRequired = SlotPromptBuilder.missing(slots, session).stream()
+                .filter(Slot::required)
+                .toList();
+        if (missingRequired.isEmpty()) {
+            return ToolResult.ok("已记录 " + slotName + "。" + status + "。必填信息已收集齐，可以给出分析和建议了。");
         }
-        long requiredLeft = missing.stream().filter(Slot::required).count();
         return ToolResult.ok("已记录 " + slotName + "。" + status
-                + "。还差 " + missing.size() + " 项（其中必填 " + requiredLeft + " 项），请继续询问。");
+                + "。还差 " + missingRequired.size() + " 项必填信息，请继续询问。");
     }
 }
