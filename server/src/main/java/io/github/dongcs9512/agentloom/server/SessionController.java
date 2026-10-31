@@ -68,9 +68,10 @@ public class SessionController {
         if (text.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "text 不能为空"));
         }
+        // 强制鉴权模式下不能用会话里已有的坐席身份兜底，否则谁都能冒名发言
         String operator = operatorResolver.resolve(headers, request.operator())
                 .map(OperatorIdentity::name)
-                .orElseGet(() -> currentOperatorName(session));
+                .orElseGet(() -> gatewaySettings.requireOperator() ? "" : currentOperatorName(session));
         if (operator.isBlank()) {
             return rejectUnauthenticated();
         }
@@ -105,10 +106,15 @@ public class SessionController {
 
     /** 人工处理完，交回 AI：后续消息重新由 AI 回答，历史不丢。 */
     @PostMapping("/{sessionId}/resume")
-    public ResponseEntity<Map<String, Object>> resume(@PathVariable String sessionId) {
+    public ResponseEntity<Map<String, Object>> resume(@PathVariable String sessionId,
+                                                      @RequestHeader Map<String, String> headers) {
         Session session = load(sessionId);
         if (session == null) {
             return ResponseEntity.notFound().build();
+        }
+        // 强制鉴权模式下，结束人工接待同样需要坐席身份
+        if (gatewaySettings.requireOperator() && operatorResolver.resolve(headers, null).isEmpty()) {
+            return rejectUnauthenticated();
         }
         String previous = currentOperatorName(session);
         session.setOperator(null);

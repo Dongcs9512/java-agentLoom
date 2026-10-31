@@ -64,12 +64,39 @@ class GatewayRequireOperatorTest {
 
     @Test
     void bodyOperatorCannotSpoofIdentityWhenHeadersTrusted() throws Exception {
-        // 开了信任 header 但没有 header 时，仍允许用 body（联调用）；有 header 时以 header 为准
+        // 有网关注入的 header 时，请求体里的 operator 一律忽略
         mockMvc.perform(post("/api/sessions/gw-1/handoff").contentType(json())
                         .header("X-Operator-Id", "u1001")
                         .header("X-Operator-Name", "张三")
                         .content("{\"operator\":\"冒名者\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.operator").value("human:张三"));
+    }
+
+    @Test
+    void appendMessageWithoutIdentityIsRejectedEvenAfterHandoff() throws Exception {
+        mockMvc.perform(post("/api/sessions/gw-1/handoff").contentType(json())
+                        .header("X-Operator-Id", "u1001")
+                        .header("X-Operator-Name", "张三")
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        // 会话已由张三接待，但不带身份的请求不能借用这个身份发言
+        mockMvc.perform(post("/api/sessions/gw-1/messages").contentType(json())
+                        .content("{\"text\":\"冒名发言\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void resumeWithoutIdentityIsRejected() throws Exception {
+        mockMvc.perform(post("/api/sessions/gw-1/handoff").contentType(json())
+                        .header("X-Operator-Id", "u1001")
+                        .header("X-Operator-Name", "张三")
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        // 结束人工接待同样是坐席操作，不能匿名调用
+        mockMvc.perform(post("/api/sessions/gw-1/resume"))
+                .andExpect(status().isUnauthorized());
     }
 }

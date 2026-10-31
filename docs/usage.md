@@ -1389,6 +1389,11 @@ public interface OperatorResolver {
 
 第二种模式下**不会**回落到请求体——否则任何人都能自报身份，等于没鉴权。
 
+`require-operator: true` 时，坐席发言（`POST /api/sessions/{id}/messages`）也**不会**沿用会话里已有的坐席身份：
+身份解析不出来就返回 401。否则一个没有凭证的请求可以冒用正在接待的坐席发言。
+结束人工接待（`POST /api/sessions/{id}/resume`）同样需要坐席身份，否则任何人都能把人工踢下线。
+`require-operator: false`（默认）保留沿用当前坐席的便利行为，适合联调。
+
 ```yaml
 agentloom:
   gateway:
