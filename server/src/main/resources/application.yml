@@ -183,6 +183,9 @@ agentloom:
     items:
       - id: legal-intake-flow
         entry-agent: legal-intake
+        # 业务参数：改这里就能调阈值，不用动流程逻辑
+        params:
+          handoff-threshold: "10000"
         steps:
           - id: collect
             type: collect
@@ -193,7 +196,7 @@ agentloom:
           # 大额案件（争议金额超过 1 万）转人工，其余交给专业 agent
           - id: check
             type: condition
-            when: slots.amount > 10000
+            when: slots.amount > params.handoff-threshold
             then: handoff
             otherwise: answer
           - id: handoff

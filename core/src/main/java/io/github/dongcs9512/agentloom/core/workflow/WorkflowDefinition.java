@@ -1,18 +1,26 @@
 package io.github.dongcs9512.agentloom.core.workflow;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
  * @param entryAgent 接待 agent，COLLECT 步骤用它收集信息
+ * @param params     业务参数，条件里可以用 {@code params.xxx} 引用（比如转人工的金额阈值）
  */
-public record WorkflowDefinition(String id, String entryAgent, List<WorkflowStep> steps) {
+public record WorkflowDefinition(String id, String entryAgent, Map<String, String> params,
+                                 List<WorkflowStep> steps) {
 
     public WorkflowDefinition {
         steps = steps == null ? List.of() : List.copyOf(steps);
+        params = params == null ? Map.of() : Map.copyOf(params);
         if (steps.isEmpty()) {
             throw new IllegalArgumentException("工作流 " + id + " 没有任何步骤");
         }
+    }
+
+    public WorkflowDefinition(String id, String entryAgent, List<WorkflowStep> steps) {
+        this(id, entryAgent, Map.of(), steps);
     }
 
     public Optional<WorkflowStep> first() {
@@ -39,7 +47,8 @@ public record WorkflowDefinition(String id, String entryAgent, List<WorkflowStep
     public void validate() {
         for (WorkflowStep step : steps) {
             if (step.type() == StepType.CONDITION) {
-                Condition.parse(step.when());
+                Condition condition = Condition.parse(step.when());
+                checkConditionParam(step, condition);
                 checkTarget(step, step.then());
                 checkTarget(step, step.otherwise());
             }
@@ -48,6 +57,27 @@ public record WorkflowDefinition(String id, String entryAgent, List<WorkflowStep
             }
             if (step.type() == StepType.COLLECT && step.slots().isEmpty()) {
                 throw new IllegalArgumentException("工作流 " + id + " 的步骤 " + step.id() + " 没有配置槽位");
+            }
+        }
+    }
+
+    /** 条件引用了参数时，参数必须存在；数值比较还要求参数值能当数字用。 */
+    private void checkConditionParam(WorkflowStep step, Condition condition) {
+        if (!condition.usesParam()) {
+            return;
+        }
+        String value = params.get(condition.paramName());
+        if (value == null) {
+            throw new IllegalArgumentException("工作流 " + id + " 的步骤 " + step.id()
+                    + " 引用了未定义的参数: params." + condition.paramName()
+                    + "，请在 params 里补上");
+        }
+        if (condition.isNumericComparison()) {
+            try {
+                Double.parseDouble(value.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("工作流 " + id + " 的参数 params."
+                        + condition.paramName() + " 必须能当数字用，实际是: " + value);
             }
         }
     }

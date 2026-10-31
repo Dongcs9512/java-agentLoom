@@ -114,6 +114,20 @@ public final class AgentRuntime {
      */
     private ChatReply doWorkflowChat(WorkflowDefinition workflow, String sessionId, String userMessage) {
         Session session = loadOrCreateSession(sessionId, workflow.entryAgent());
+
+        // 流程已经走完、且最后由某个专业 agent 作答：后续消息直接交给它，
+        // 不要重新从"请问具体是什么事"开始问
+        if ("true".equals(session.slot(WorkflowEngine.SLOT_DONE))) {
+            String stickyAgent = session.slot(WorkflowEngine.SLOT_ROUTED);
+            if (!stickyAgent.isBlank()) {
+                String answer = runAgentTurn(loadAgent(stickyAgent), session, userMessage, false);
+                metrics.count("agentloom.workflow.sticky", Map.of("agent", stickyAgent));
+                if (sessionSupport.hasSession() && !"ephemeral".equals(session.id())) {
+                    sessionSupport.store().save(session);
+                }
+                return new ChatReply(answer, sessionId, false);
+            }
+        }
         WorkflowHost host = new WorkflowHost() {
             @Override
             public String chat(String targetAgentId, Session targetSession, String message) {

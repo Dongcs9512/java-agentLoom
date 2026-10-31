@@ -22,6 +22,8 @@ public final class WorkflowEngine {
     public static final String SLOT_TURNS = "__wf_turns";
     /** 分派结果。 */
     public static final String SLOT_ROUTED = "__wf_routed";
+    /** 流程已结束且该继续由某个专业 agent 接待（sticky），后续消息不再重走流程。 */
+    public static final String SLOT_DONE = "__wf_done";
 
     /** 单轮最多推进多少步，防止条件写错导致循环跳转。 */
     private static final int MAX_STEPS_PER_TURN = 20;
@@ -93,10 +95,16 @@ public final class WorkflowEngine {
                     String answer = host.chat(target, session, task);
                     trace.add("call:" + target);
                     reset(session);
+                    // 交给专业 agent 作答的流程，后续消息继续由它接待；
+                    // 转人工之类的固定 agent 不 sticky，免得用户追问一直收到同一句话
+                    session.putSlot(SLOT_DONE, step.usesRoutedAgent() ? "true" : "false");
+                    if (step.usesRoutedAgent()) {
+                        session.putSlot(SLOT_ROUTED, target);
+                    }
                     return new WorkflowResult(answer, step.id(), true, trace);
                 }
                 case CONDITION -> {
-                    boolean matched = Condition.parse(step.when()).evaluate(session.slots());
+                    boolean matched = Condition.parse(step.when()).evaluate(session.slots(), definition.params());
                     String target = matched ? step.then() : step.otherwise();
                     trace.add("condition:" + (matched ? "then" : "otherwise") + "->" + target);
                     if (target == null || target.isBlank()) {

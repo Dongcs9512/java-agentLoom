@@ -1221,7 +1221,45 @@ curl -X DELETE localhost:8080/api/workflows/refund-flow
 优先级：数据库 > 配置文件。数据库里没有的入口 agent 才回落到 YAML，
 所以你可以「配置文件放基线、数据库放线上临时调整」。
 
-### 20.5 演示：大额案件转人工
+### 20.5 参数化：阈值让用户自己改
+
+业务数值（比如转人工的金额门槛）不要写死在流程里，用 `params` 单独配：
+
+```yaml
+- id: legal-intake-flow
+  entry-agent: legal-intake
+  params:
+    handoff-threshold: "10000"        # ← 运营改这一行就行
+  steps:
+    - id: check
+      type: condition
+      when: slots.amount > params.handoff-threshold
+      then: handoff
+      otherwise: answer
+```
+
+- 条件右侧除了字面量，还可以写 `params.<名字>`
+- **参数没定义、或数值比较时参数值不是数字 → 启动即报错**
+- 走数据库时改参数同样不用重启（`POST /api/workflows` 覆盖定义）
+
+### 20.6 流程结束后继续聊同一个专业 agent
+
+这是最常见的真实场景：律师给完分析，用户接着问「那仲裁申请书怎么写？」
+
+默认行为会让流程重新开始（又问一遍「具体是什么事」），体验很差。所以：
+**CALL 步骤如果用的是 `@routed`（专业 agent），流程结束后会保持 sticky**——
+后续消息直接交给同一个 agent，带着完整会话历史。
+
+```
+第 1 轮：欠 3000 块，被辞退  → 收集 → 分派 legal-labor → 完整分析
+第 2 轮：那仲裁申请书怎么写？ → 直接 legal-labor 回答（不再收集）
+```
+
+指标 `agentloom.workflow.sticky{agent}` 记录命中次数。
+
+**转人工这类固定 agent 不会 sticky**，否则用户每次追问都只收到「已为您转接人工」这一句。
+
+### 20.7 演示：大额案件转人工
 
 内置的法律咨询流程就是一个完整例子：
 
@@ -1248,7 +1286,7 @@ steps:
 注意 `amount` 在 agent 配置里是**可选槽位**——不填不影响收集完成，
 只是条件判为 false 走普通分支。
 
-### 20.6 已知限制
+### 20.8 已知限制
 
 - **流式**：工作流涉及多步编排，`/stream` 接口目前整段推送，不逐字。
   单 agent 路径（不挂工作流）仍然逐字流式。

@@ -193,6 +193,50 @@ class WorkflowEngineTest {
     }
 
     @Test
+    void conditionReadsThresholdFromWorkflowParams() {
+        FakeHost host = new FakeHost();
+        host.onChat = (session, message) -> session.putSlot("amount", "20000");
+        WorkflowDefinition flow = new WorkflowDefinition("w", "intake",
+                java.util.Map.of("handoff-threshold", "30000"),
+                List.of(
+                        collect("collect", List.of("amount"), 3),
+                        condition("check", "slots.amount > params.handoff-threshold", "handoff", "auto"),
+                        call("handoff", "human"),
+                        call("auto", "bot")));
+
+        WorkflowResult result = engine.step(flow, new Session("s1", "intake"), "欠两万", host);
+
+        assertEquals("answer-from-bot", result.answer(), "阈值 3 万，两万没超过，应走 otherwise");
+    }
+
+    @Test
+    void routedAgentStaysForFollowUps() {
+        FakeHost host = new FakeHost();
+        host.onChat = (session, message) -> session.putSlot("incident", "被辞退");
+        host.routed = Optional.of("specialist");
+        Session session = new Session("s1", "intake");
+
+        engine.step(legalFlow(), session, "被辞退", host);
+
+        assertEquals("true", session.slot(WorkflowEngine.SLOT_DONE), "交给专业 agent 后应保持 sticky");
+        assertEquals("specialist", session.slot(WorkflowEngine.SLOT_ROUTED));
+    }
+
+    @Test
+    void fixedAgentDoesNotBecomeSticky() {
+        FakeHost host = new FakeHost();
+        WorkflowDefinition flow = new WorkflowDefinition("w", "intake", List.of(
+                new WorkflowStep("handoff", StepType.CALL, List.of(), null,
+                        null, "human", null, null, null)));
+        Session session = new Session("s1", "intake");
+
+        engine.step(flow, session, "转人工", host);
+
+        assertEquals("false", session.slot(WorkflowEngine.SLOT_DONE),
+                "固定 agent（如转人工）不该 sticky，否则追问一直收到同一句话");
+    }
+
+    @Test
     void cyclicConditionIsStoppedByGuard() {
         FakeHost host = new FakeHost();
         WorkflowDefinition flow = new WorkflowDefinition("w", "intake", List.of(
@@ -223,5 +267,23 @@ class WorkflowEngineTest {
         assertThrows(IllegalArgumentException.class, noSlots::validate);
 
         legalFlow().validate();
+    }
+
+    @Test
+    void validationChecksReferencedParams() {
+        WorkflowDefinition missingParam = new WorkflowDefinition("w", "intake", List.of(
+                new WorkflowStep("c", StepType.CONDITION, List.of(), null, null, null,
+                        "slots.a > params.nope", "", "")));
+        assertThrows(IllegalArgumentException.class, missingParam::validate);
+
+        WorkflowDefinition badParam = new WorkflowDefinition("w", "intake",
+                java.util.Map.of("nope", "很多"), List.of(
+                new WorkflowStep("c", StepType.CONDITION, List.of(), null, null, null,
+                        "slots.a > params.nope", "", "")));
+        assertThrows(IllegalArgumentException.class, badParam::validate);
+
+        new WorkflowDefinition("w", "intake", java.util.Map.of("nope", "100"), List.of(
+                new WorkflowStep("c", StepType.CONDITION, List.of(), null, null, null,
+                        "slots.a > params.nope", "", ""))).validate();
     }
 }

@@ -46,7 +46,16 @@ public class WorkflowProperties {
     public static class Workflow {
         private String id;
         private String entryAgent;
+        private Map<String, String> params = new LinkedHashMap<>();
         private List<Step> steps = new ArrayList<>();
+
+        public Map<String, String> getParams() {
+            return params;
+        }
+
+        public void setParams(Map<String, String> params) {
+            this.params = params == null ? new LinkedHashMap<>() : params;
+        }
 
         public String getId() {
             return id;
@@ -81,7 +90,7 @@ public class WorkflowProperties {
             for (Step step : steps) {
                 converted.add(step.toStep());
             }
-            return new WorkflowDefinition(workflowId, entryAgent, converted);
+            return new WorkflowDefinition(workflowId, entryAgent, params, converted);
         }
     }
 

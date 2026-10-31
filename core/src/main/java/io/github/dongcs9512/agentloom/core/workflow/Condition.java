@@ -1,13 +1,15 @@
 package io.github.dongcs9512.agentloom.core.workflow;
 
+import java.util.Map;
+
 /**
  * 工作流里的条件表达式，语法刻意做得极简，避免引入脚本引擎：
  *
  * <pre>
  *   slots.amount &gt; 10000
+ *   slots.amount &gt; params.handoff-threshold     // 右侧可以引用工作流参数
  *   slots.incident contains 辞退
  *   slots.city == "杭州"
- *   slots.urgent != true
  * </pre>
  *
  * 支持的操作符：== != &gt; &lt; &gt;= &lt;= contains
@@ -18,14 +20,20 @@ public final class Condition {
         EQ, NE, GT, LT, GE, LE, CONTAINS
     }
 
+    private static final String PARAM_PREFIX = "params.";
+
     private final String slotName;
     private final Operator operator;
+    /** 字面量；引用参数时为 null。 */
     private final String expected;
+    /** 引用的工作流参数名；字面量时为 null。 */
+    private final String paramName;
 
-    private Condition(String slotName, Operator operator, String expected) {
+    private Condition(String slotName, Operator operator, String expected, String paramName) {
         this.slotName = slotName;
         this.operator = operator;
         this.expected = expected;
+        this.paramName = paramName;
     }
 
     public static Condition parse(String expression) {
@@ -35,8 +43,7 @@ public final class Condition {
         String text = expression.trim();
 
         // 双字符操作符要先匹配，否则会被单字符的 > 抢掉
-        String[] twoChar = {">=", "<=", "!=", "=="};
-        for (String op : twoChar) {
+        for (String op : new String[]{">=", "<=", "!=", "=="}) {
             int idx = text.indexOf(op);
             if (idx > 0) {
                 return build(text, idx, op, operatorOf(op));
@@ -66,9 +73,17 @@ public final class Condition {
         if (slotName.isEmpty()) {
             throw new IllegalArgumentException("条件缺少槽位名: " + text);
         }
+
         String expected = unquote(right);
-        if (operator == Operator.GT || operator == Operator.LT
-                || operator == Operator.GE || operator == Operator.LE) {
+        if (expected.startsWith(PARAM_PREFIX)) {
+            String paramName = expected.substring(PARAM_PREFIX.length()).trim();
+            if (paramName.isEmpty()) {
+                throw new IllegalArgumentException("条件引用了空参数名: " + text);
+            }
+            // 具体数值在求值时从工作流参数里取
+            return new Condition(slotName, operator, null, paramName);
+        }
+        if (isNumericOperator(operator)) {
             // 加载时就把配错的阈值挡住，别等线上真跑到这一步才炸
             try {
                 Double.parseDouble(expected.trim());
@@ -76,7 +91,12 @@ public final class Condition {
                 throw new IllegalArgumentException("数值比较的右侧必须是数字: " + text);
             }
         }
-        return new Condition(slotName, operator, expected);
+        return new Condition(slotName, operator, expected, null);
+    }
+
+    private static boolean isNumericOperator(Operator operator) {
+        return operator == Operator.GT || operator == Operator.LT
+                || operator == Operator.GE || operator == Operator.LE;
     }
 
     private static String unquote(String raw) {
@@ -88,55 +108,58 @@ public final class Condition {
     }
 
     private static Operator operatorOf(String token) {
-        return switch (token) {
+        return switch (token.trim()) {
             case "==" -> Operator.EQ;
             case "!=" -> Operator.NE;
             case ">" -> Operator.GT;
             case "<" -> Operator.LT;
             case ">=" -> Operator.GE;
             case "<=" -> Operator.LE;
+            case "contains" -> Operator.CONTAINS;
             default -> throw new IllegalArgumentException("未知操作符: " + token);
         };
     }
 
-    public boolean evaluate(java.util.Map<String, Object> slots) {
+    /** 没有工作流参数的场景。 */
+    public boolean evaluate(Map<String, Object> slots) {
+        return evaluate(slots, Map.of());
+    }
+
+    public boolean evaluate(Map<String, Object> slots, Map<String, String> params) {
         Object value = slots == null ? null : slots.get(slotName);
         String actual = value == null ? "" : String.valueOf(value);
+        String right = paramName == null
+                ? expected
+                : (params == null ? "" : params.getOrDefault(paramName, ""));
+
         return switch (operator) {
-            case EQ -> actual.equals(expected);
-            case NE -> !actual.equals(expected);
-            case CONTAINS -> actual.contains(expected);
-            case GT, LT, GE, LE -> compareNumbers(actual);
+            case EQ -> actual.equals(right);
+            case NE -> !actual.equals(right);
+            case CONTAINS -> right != null && actual.contains(right);
+            case GT, LT, GE, LE -> compareNumbers(actual, right);
         };
     }
 
     /**
-     * 槽位没填或填的不是数字时返回 false（走 otherwise 分支）。
-     * 条件判断不该因为用户说了"两万"而不是"20000"就抛异常把对话打断。
+     * 槽位没填、或值是「两万」这种非数字时返回 false（走 otherwise 分支）。
+     * 条件判断不该因为用户说话方式把对话打断。
      */
-    private boolean compareNumbers(String actual) {
+    private boolean compareNumbers(String actual, String right) {
         double left;
+        double expectedValue;
         try {
             left = Double.parseDouble(actual.trim());
+            expectedValue = Double.parseDouble(right == null ? "" : right.trim());
         } catch (NumberFormatException e) {
             return false;
         }
-        double right = parseNumber(expected);
         return switch (operator) {
-            case GT -> left > right;
-            case LT -> left < right;
-            case GE -> left >= right;
-            case LE -> left <= right;
+            case GT -> left > expectedValue;
+            case LT -> left < expectedValue;
+            case GE -> left >= expectedValue;
+            case LE -> left <= expectedValue;
             default -> false;
         };
-    }
-
-    private static double parseNumber(String raw) {
-        try {
-            return Double.parseDouble(raw.trim());
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException("条件比较需要数字，实际是: " + raw);
-        }
     }
 
     public String slotName() {
@@ -149,5 +172,18 @@ public final class Condition {
 
     public String expected() {
         return expected;
+    }
+
+    /** 右侧引用的工作流参数名；没有则为 null。 */
+    public String paramName() {
+        return paramName;
+    }
+
+    public boolean usesParam() {
+        return paramName != null;
+    }
+
+    public boolean isNumericComparison() {
+        return isNumericOperator(operator);
     }
 }

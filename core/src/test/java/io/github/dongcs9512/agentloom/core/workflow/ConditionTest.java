@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -69,6 +70,17 @@ class ConditionTest {
     @Test
     void nonNumericThresholdIsRejectedAtParseTime() {
         assertThrows(IllegalArgumentException.class, () -> Condition.parse("slots.amount > 一万"));
+    }
+
+    @Test
+    void thresholdCanReferenceWorkflowParam() {
+        Condition c = Condition.parse("slots.amount > params.handoff-threshold");
+
+        assertTrue(c.usesParam());
+        assertEquals("handoff-threshold", c.paramName());
+        assertTrue(c.evaluate(Map.of("amount", "20000"), Map.of("handoff-threshold", "10000")));
+        assertFalse(c.evaluate(Map.of("amount", "5000"), Map.of("handoff-threshold", "10000")));
+        assertFalse(c.evaluate(Map.of("amount", "20000"), Map.of()), "参数缺失时判 false，不抛异常");
     }
 
     @Test

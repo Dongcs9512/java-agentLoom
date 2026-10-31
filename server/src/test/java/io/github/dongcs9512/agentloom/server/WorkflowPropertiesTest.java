@@ -89,6 +89,32 @@ class WorkflowPropertiesTest {
     }
 
     @Test
+    void paramsAreCarriedIntoDefinition() {
+        WorkflowProperties.Step condition = step("check", "condition");
+        condition.setWhen("slots.amount > params.handoff-threshold");
+        condition.setThen("");
+        condition.setOtherwise("");
+
+        WorkflowProperties.Workflow workflow = workflow("f", "intake", condition);
+        workflow.setParams(Map.of("handoff-threshold", "10000"));
+
+        WorkflowDefinition definition = with(workflow).toDefinitions().get("intake");
+
+        assertEquals("10000", definition.params().get("handoff-threshold"));
+    }
+
+    @Test
+    void missingParamFailsAtLoad() {
+        WorkflowProperties.Step condition = step("check", "condition");
+        condition.setWhen("slots.amount > params.nope");
+        condition.setThen("");
+        condition.setOtherwise("");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> with(workflow("f", "intake", condition)).toDefinitions());
+    }
+
+    @Test
     void emptyConfigProducesEmptyMap() {
         assertTrue(new WorkflowProperties().toDefinitions().isEmpty());
     }
