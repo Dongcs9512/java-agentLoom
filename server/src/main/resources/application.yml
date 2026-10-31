@@ -190,6 +190,15 @@ agentloom:
             max-turns: 5
           - id: dispatch
             type: dispatch
+          # 大额案件（争议金额超过 1 万）转人工，其余交给专业 agent
+          - id: check
+            type: condition
+            when: slots.amount > 10000
+            then: handoff
+            otherwise: answer
+          - id: handoff
+            type: call
+            agent: legal-handoff
           - id: answer
             type: call
             agent: "@routed"

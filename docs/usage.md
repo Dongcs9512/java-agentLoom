@@ -1154,6 +1154,14 @@ agentloom:
 
 支持 `== != > < >= <= contains`，左边必须是 `slots.<字段名>`。
 
+**求值规则（重要）**：
+
+- **加载时严格**：数值比较的右侧必须是数字，写成 `slots.amount > 一万` 会在启动时报错
+- **运行时容错**：槽位没填、或值是「两万」这种非数字时，**判为 false 走 otherwise 分支**，
+  不会因为用户说话方式把对话打断
+
+所以条件分支天然是"安全兜底"的：拿不准就落到普通路径。
+
 ### 20.2 为什么状态要存在会话里
 
 「收集」这一步需要用户回答，引擎没法自己跑完。所以工作流**跨用户消息推进**：
@@ -1213,7 +1221,34 @@ curl -X DELETE localhost:8080/api/workflows/refund-flow
 优先级：数据库 > 配置文件。数据库里没有的入口 agent 才回落到 YAML，
 所以你可以「配置文件放基线、数据库放线上临时调整」。
 
-### 20.5 已知限制
+### 20.5 演示：大额案件转人工
+
+内置的法律咨询流程就是一个完整例子：
+
+```yaml
+steps:
+  - { id: collect,  type: collect,  slots: [incident, when, location], max-turns: 5 }
+  - { id: dispatch, type: dispatch }
+  - id: check
+    type: condition
+    when: slots.amount > 10000     # 争议金额超过 1 万
+    then: handoff
+    otherwise: answer
+  - { id: handoff, type: call, agent: legal-handoff }   # 人工转接话术
+  - { id: answer,  type: call, agent: "@routed" }       # 专业律师分析
+```
+
+实测：
+
+| 用户说 | 走的分支 | 回答 |
+|---|---|---|
+| 「欠我**两万**块工资，把我辞退了」 | handoff | 已为您转接人工律师，请保持电话畅通 |
+| 「欠我 **3000** 块工资，把我辞退了」 | answer | 违法解除的法律分析（2N、仲裁时效…） |
+
+注意 `amount` 在 agent 配置里是**可选槽位**——不填不影响收集完成，
+只是条件判为 false 走普通分支。
+
+### 20.6 已知限制
 
 - **流式**：工作流涉及多步编排，`/stream` 接口目前整段推送，不逐字。
   单 agent 路径（不挂工作流）仍然逐字流式。

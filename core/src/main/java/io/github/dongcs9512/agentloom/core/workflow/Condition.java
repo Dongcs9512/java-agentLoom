@@ -66,7 +66,17 @@ public final class Condition {
         if (slotName.isEmpty()) {
             throw new IllegalArgumentException("条件缺少槽位名: " + text);
         }
-        return new Condition(slotName, operator, unquote(right));
+        String expected = unquote(right);
+        if (operator == Operator.GT || operator == Operator.LT
+                || operator == Operator.GE || operator == Operator.LE) {
+            // 加载时就把配错的阈值挡住，别等线上真跑到这一步才炸
+            try {
+                Double.parseDouble(expected.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("数值比较的右侧必须是数字: " + text);
+            }
+        }
+        return new Condition(slotName, operator, expected);
     }
 
     private static String unquote(String raw) {
@@ -100,8 +110,17 @@ public final class Condition {
         };
     }
 
+    /**
+     * 槽位没填或填的不是数字时返回 false（走 otherwise 分支）。
+     * 条件判断不该因为用户说了"两万"而不是"20000"就抛异常把对话打断。
+     */
     private boolean compareNumbers(String actual) {
-        double left = parseNumber(actual);
+        double left;
+        try {
+            left = Double.parseDouble(actual.trim());
+        } catch (NumberFormatException e) {
+            return false;
+        }
         double right = parseNumber(expected);
         return switch (operator) {
             case GT -> left > right;

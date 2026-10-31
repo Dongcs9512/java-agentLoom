@@ -26,6 +26,7 @@ public class LegalDemoSeeder implements ApplicationRunner {
     public static final String LABOR_AGENT = "legal-labor";
     public static final String CONTRACT_AGENT = "legal-contract";
     public static final String WELFARE_AGENT = "legal-welfare";
+    public static final String HANDOFF_AGENT = "legal-handoff";
 
     private static final String LAWYER_PROMPT =
             "你是资深劳动法律师。回答必须依据 search_knowledge 检索到的法条与实务要点，"
@@ -57,6 +58,8 @@ public class LegalDemoSeeder implements ApplicationRunner {
         seedAgent(LABOR_AGENT, LAWYER_PROMPT + "你专注劳动争议：辞退、欠薪、加班费、经济补偿与赔偿金。");
         seedAgent(CONTRACT_AGENT, LAWYER_PROMPT + "你专注劳动合同与竞业限制：试用期、违约金、保密与竞业协议效力。");
         seedAgent(WELFARE_AGENT, LAWYER_PROMPT + "你专注社保与工伤：社会保险缴纳、工伤认定、女职工三期保护、年休假。");
+        seedAgent(HANDOFF_AGENT, "你是人工客服转接专员。只输出一句话，告知用户本案已转交人工律师跟进，"
+                + "请保持电话畅通、留意工单短信，不要给任何法律分析。");
 
         if (!agentExists(INTAKE_AGENT)) {
             repo.saveAgent(new AgentConfig(
@@ -65,7 +68,8 @@ public class LegalDemoSeeder implements ApplicationRunner {
                             new Slot("incident", "具体是什么事？比如被辞退、欠薪、加班费、工伤", true),
                             new Slot("when", "事情大概发生在什么时候？", true),
                             new Slot("location", "工作地在哪个城市？", true),
-                            new Slot("detail", "能简单说说经过吗？比如有没有签合同、有没有书面通知", false))));
+                            new Slot("detail", "能简单说说经过吗？比如有没有签合同、有没有书面通知", false),
+                            new Slot("amount", "涉及的金额大概是多少？比如欠薪两万", false))));
         }
 
         if (!scenarioSettings.enabled() && toolRegistry.get("delegate_to_" + LABOR_AGENT).isEmpty()) {
@@ -80,6 +84,8 @@ public class LegalDemoSeeder implements ApplicationRunner {
         return "你是法律咨询的接待顾问。用户一开口描述案情，先立刻调用 record_case_info "
                 + "把 incident 记下来（用户说的就是事实，不要先追问再记），"
                 + "再按【信息收集】逐项了解其他情况，一次只问一到两项，语气自然亲切，不要像填表。"
+                + "用户只要提到金额（欠薪多少、赔偿要多少），立刻调用 record_case_info 记录 amount，"
+                + "并换成阿拉伯数字（比如用户说两万就记 20000），否则流程判断不了。"
                 + delegation
                 + "最后把律师的结论用通俗的话转述给用户。";
     }
@@ -131,6 +137,7 @@ public class LegalDemoSeeder implements ApplicationRunner {
         return Map.of(
                 INTAKE_AGENT, "接待与信息收集",
                 LABOR_AGENT, "劳动争议（辞退/欠薪/加班费）",
+                HANDOFF_AGENT, "人工转接（大额案件）",
                 CONTRACT_AGENT, "合同与竞业限制",
                 WELFARE_AGENT, "社保与工伤");
     }

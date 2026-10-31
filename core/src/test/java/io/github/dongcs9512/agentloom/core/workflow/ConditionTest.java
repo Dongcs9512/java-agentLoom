@@ -59,10 +59,16 @@ class ConditionTest {
     }
 
     @Test
-    void comparingNonNumbersThrows() {
+    void nonNumericSlotValueFallsBackToFalse() {
         Condition c = Condition.parse("slots.amount > 100");
 
-        assertThrows(IllegalStateException.class, () -> c.evaluate(Map.of("amount", "很多")));
+        assertFalse(c.evaluate(Map.of("amount", "很多")), "用户说\"两万\"不该让流程崩掉");
+        assertFalse(c.evaluate(Map.of()), "槽位没填同样走 otherwise");
+    }
+
+    @Test
+    void nonNumericThresholdIsRejectedAtParseTime() {
+        assertThrows(IllegalArgumentException.class, () -> Condition.parse("slots.amount > 一万"));
     }
 
     @Test
