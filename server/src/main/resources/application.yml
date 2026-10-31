@@ -205,3 +205,12 @@ agentloom:
           - id: answer
             type: call
             agent: "@routed"
+
+  # 网关接入点：接真实坐席系统/统一认证时用
+  gateway:
+    # 打开后只信任网关注入的操作者 header，请求体里的 operator 一律忽略（生产建议开）
+    trust-operator-headers: false
+    operator-id-header: X-Operator-Id
+    operator-name-header: X-Operator-Name
+    # true 时解析不出身份直接 401
+    require-operator: false

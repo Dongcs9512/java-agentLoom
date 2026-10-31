@@ -1,6 +1,9 @@
 package io.github.dongcs9512.agentloom.server;
 
 import io.github.dongcs9512.agentloom.core.session.Session;
+import io.github.dongcs9512.agentloom.server.gateway.GatewaySettings;
+import io.github.dongcs9512.agentloom.server.gateway.OperatorIdentity;
+import io.github.dongcs9512.agentloom.server.gateway.OperatorResolver;
 import io.github.dongcs9512.agentloom.core.session.SessionStore;
 import io.github.dongcs9512.agentloom.llm.ChatMessage;
 import org.springframework.beans.factory.ObjectProvider;
@@ -9,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,9 +36,14 @@ public class SessionController {
     }
 
     private final ObjectProvider<SessionSupport> supportProvider;
+    private final OperatorResolver operatorResolver;
+    private final GatewaySettings gatewaySettings;
 
-    public SessionController(ObjectProvider<SessionSupport> supportProvider) {
+    public SessionController(ObjectProvider<SessionSupport> supportProvider, OperatorResolver operatorResolver,
+                             GatewaySettings gatewaySettings) {
         this.supportProvider = supportProvider;
+        this.operatorResolver = operatorResolver;
+        this.gatewaySettings = gatewaySettings;
     }
 
     @GetMapping("/{sessionId}")
@@ -49,6 +58,7 @@ public class SessionController {
     /** 人工坐席发言：写进同一个会话，AI 接手时能看到（带【人工客服 X】前缀）。 */
     @PostMapping("/{sessionId}/messages")
     public ResponseEntity<Map<String, Object>> appendMessage(@PathVariable String sessionId,
+                                                             @RequestHeader Map<String, String> headers,
                                                              @RequestBody MessageRequest request) {
         Session session = load(sessionId);
         if (session == null) {
@@ -58,9 +68,11 @@ public class SessionController {
         if (text.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "text 不能为空"));
         }
-        String operator = request.operator();
-        if (operator == null || operator.isBlank()) {
-            operator = currentOperatorName(session);
+        String operator = operatorResolver.resolve(headers, request.operator())
+                .map(OperatorIdentity::name)
+                .orElseGet(() -> currentOperatorName(session));
+        if (operator.isBlank()) {
+            return rejectUnauthenticated();
         }
         session.addMessage(ChatMessage.assistant("【人工客服 " + operator + "】" + text));
         store().save(session);
@@ -70,17 +82,19 @@ public class SessionController {
     /** 转人工：会话切到人工接待，AI 从此不再回复，只记录用户消息。 */
     @PostMapping("/{sessionId}/handoff")
     public ResponseEntity<Map<String, Object>> handoff(@PathVariable String sessionId,
+                                                       @RequestHeader Map<String, String> headers,
                                                        @RequestBody HandoffRequest request) {
         Session session = load(sessionId);
         if (session == null) {
             return ResponseEntity.notFound().build();
         }
-        String operator = request.operator() == null ? "" : request.operator().trim();
-        if (operator.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "operator 不能为空"));
+        java.util.Optional<OperatorIdentity> identity = operatorResolver.resolve(headers, request.operator());
+        if (identity.isEmpty()) {
+            return rejectUnauthenticated();
         }
-        session.setOperator("human:" + operator);
-        StringBuilder note = new StringBuilder("【系统】已转人工，当前由 " + operator + " 接待");
+        OperatorIdentity operator = identity.get();
+        session.setOperator(operator.sessionValue());
+        StringBuilder note = new StringBuilder("【系统】已转人工，当前由 " + operator.name() + " 接待");
         if (request.note() != null && !request.note().isBlank()) {
             note.append("（").append(request.note().trim()).append("）");
         }
@@ -102,6 +116,15 @@ public class SessionController {
                 + (previous.isEmpty() ? "" : "（原坐席 " + previous + "）") + "，本会话交回 AI"));
         store().save(session);
         return ResponseEntity.ok(view(session));
+    }
+
+    /** 解析不出身份时：开启强制鉴权返回 401，否则按参数缺失返回 400。 */
+    private ResponseEntity<Map<String, Object>> rejectUnauthenticated() {
+        if (gatewaySettings.requireOperator()) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("error", "未识别到操作者身份", "hint", "请在网关注入操作者信息或关闭 agentloom.gateway.require-operator"));
+        }
+        return ResponseEntity.badRequest().body(Map.of("error", "operator 不能为空"));
     }
 
     private Session load(String sessionId) {

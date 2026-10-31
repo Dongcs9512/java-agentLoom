@@ -1367,3 +1367,65 @@ curl -X POST localhost:8080/api/sessions/u1/handoff   -H 'Content-Type: applicat
 - **没有坐席身份认证**：`operator` 只是字符串，谁都能传任意名字。接入真实坐席系统时要在网关层鉴权
 - **没有实时推送**：新消息要靠轮询或自己接 WebSocket
 - **AI 建议模式未做**：转人工期间 AI 不会生成「建议回复」给坐席参考
+
+## 22. 网关接入点（预留）
+
+框架不实现认证，但留好了接入位。接真实坐席系统时**不用改框架代码**。
+
+### 22.1 身份从哪来
+
+```java
+public interface OperatorResolver {
+    Optional<OperatorIdentity> resolve(Map<String, String> headers, String bodyOperator);
+}
+```
+
+默认实现 `DefaultOperatorResolver` 两种模式：
+
+| 配置 | 行为 |
+|---|---|
+| `trust-operator-headers: false`（默认） | 用请求体里的 `operator`，仅适合联调 |
+| `trust-operator-headers: true` | **只认**网关注入的 header，请求体一律忽略 |
+
+第二种模式下**不会**回落到请求体——否则任何人都能自报身份，等于没鉴权。
+
+```yaml
+agentloom:
+  gateway:
+    trust-operator-headers: true        # 前面有网关剥离并重写该头时打开
+    operator-id-header: X-Operator-Id
+    operator-name-header: X-Operator-Name
+    require-operator: true              # 解析不出身份直接 401
+```
+
+### 22.2 接自己的认证系统
+
+实现 `OperatorResolver` 并注册成 Bean 即可覆盖默认实现：
+
+```java
+@Bean
+public OperatorResolver operatorResolver(MySsoClient sso) {
+    return (headers, bodyOperator) -> {
+        String token = headers.get("Authorization");
+        return Optional.ofNullable(token)
+                .flatMap(t -> sso.verify(t))               // 自己验 token
+                .map(user -> OperatorIdentity.human(user.id(), user.name()));
+    };
+}
+```
+
+框架不关心 token 怎么验——JWT、OAuth2、内部签名都行，你实现这一个方法。
+
+### 22.3 Nginx 透传示例
+
+```nginx
+location /api/sessions/ {
+    # 真实系统里这里应该由 auth_request 或网关插件校验后注入
+    proxy_set_header X-Operator-Id   $upstream_http_x_operator_id;
+    proxy_set_header X-Operator-Name $upstream_http_x_operator_name;
+    proxy_pass http://agentloom_backend;
+}
+```
+
+> ⚠️ 直接 `proxy_set_header X-Operator-Id $http_x_operator_id` 等于把客户端自报的头原样转发，
+> 起不到任何鉴权作用。必须由**网关自己校验后重写**。
