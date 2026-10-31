@@ -34,6 +34,14 @@ class WorkflowEngineTest {
             calls.add("route");
             return routed;
         }
+
+        String combineInstruction;
+
+        @Override
+        public String combine(String instruction) {
+            combineInstruction = instruction;
+            return "combined-answer";
+        }
     }
 
     private static WorkflowStep collect(String id, List<String> slots, int maxTurns) {
@@ -234,6 +242,67 @@ class WorkflowEngineTest {
 
         assertEquals("false", session.slot(WorkflowEngine.SLOT_DONE),
                 "固定 agent（如转人工）不该 sticky，否则追问一直收到同一句话");
+    }
+
+    private static WorkflowStep parallel(String id, List<String> agents, String merge) {
+        return new WorkflowStep(id, StepType.PARALLEL, List.of(), null, null, null,
+                null, null, null, agents, merge, 5000);
+    }
+
+    @Test
+    void parallelRunsAllAgentsAndConcatenates() {
+        FakeHost host = new FakeHost();
+        WorkflowDefinition flow = new WorkflowDefinition("w", "intake", List.of(
+                parallel("fan", List.of("labor", "contract"), "concat")));
+
+        WorkflowResult result = engine.step(flow, new Session("s1", "intake"), "分析一下", host);
+
+        assertTrue(result.finished());
+        assertTrue(result.answer().contains("【labor】"), result.answer());
+        assertTrue(result.answer().contains("【contract】"), result.answer());
+        assertTrue(result.answer().contains("answer-from-labor"), result.answer());
+        assertTrue(result.answer().contains("answer-from-contract"), result.answer());
+    }
+
+    @Test
+    void parallelSynthesizeUsesCombiner() {
+        FakeHost host = new FakeHost();
+        WorkflowDefinition flow = new WorkflowDefinition("w", "intake", List.of(
+                parallel("fan", List.of("labor", "contract"), "synthesize")));
+
+        WorkflowResult result = engine.step(flow, new Session("s1", "intake"), "分析一下", host);
+
+        assertEquals("combined-answer", result.answer());
+        assertTrue(host.combineInstruction.contains("answer-from-labor"), host.combineInstruction);
+        assertTrue(host.combineInstruction.contains("answer-from-contract"), host.combineInstruction);
+    }
+
+    @Test
+    void parallelToleratesOneBranchFailing() {
+        FakeHost host = new FakeHost() {
+            @Override
+            public String chat(String agentId, Session session, String userMessage) {
+                if ("broken".equals(agentId)) {
+                    throw new IllegalStateException("模型超时");
+                }
+                return super.chat(agentId, session, userMessage);
+            }
+        };
+        WorkflowDefinition flow = new WorkflowDefinition("w", "intake", List.of(
+                parallel("fan", List.of("labor", "broken"), "concat")));
+
+        WorkflowResult result = engine.step(flow, new Session("s1", "intake"), "分析", host);
+
+        assertTrue(result.answer().contains("answer-from-labor"), result.answer());
+        assertTrue(result.answer().contains("模型超时"), result.answer());
+    }
+
+    @Test
+    void parallelWithoutAgentsIsRejectedAtValidation() {
+        WorkflowDefinition flow = new WorkflowDefinition("w", "intake", List.of(
+                parallel("fan", List.of(), "concat")));
+
+        assertThrows(IllegalArgumentException.class, flow::validate);
     }
 
     @Test

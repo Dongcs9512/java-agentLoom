@@ -1135,6 +1135,7 @@ agentloom:
 | `dispatch` | 按会话内容判断交给谁，不调模型 | — |
 | `call` | 跑指定 agent，产出最终回答 | `agent`（或 `@routed`） |
 | `condition` | 按槽位取值跳转 | `when` / `then` / `otherwise` |
+| `parallel` | 同一案情同时发给多个 agent 再合并 | `agents` / `merge` / `timeout-ms` |
 
 条件语法刻意做得极简，不引入脚本引擎：
 
@@ -1221,7 +1222,24 @@ curl -X DELETE localhost:8080/api/workflows/refund-flow
 优先级：数据库 > 配置文件。数据库里没有的入口 agent 才回落到 YAML，
 所以你可以「配置文件放基线、数据库放线上临时调整」。
 
-### 20.5 参数化：阈值让用户自己改
+### 20.5 并行步骤
+
+一个案件同时涉及多个法律方向时，可以让几个专业 agent 并行分析再合并：
+
+```yaml
+- id: fan-out
+  type: parallel
+  agents: [legal-labor, legal-contract]
+  merge: synthesize        # concat（拼接）| synthesize（再调模型合成）
+  timeout-ms: 30000
+```
+
+- **每个分支跑在会话副本上**：并行分支共享同一个 Session 会并发修改消息列表，
+  而且并行分支本来就不该改动收集到的槽位
+- **失败容忍**：某个分支挂了或超时，结果里标注「（该方向分析失败：…）」，其余照常合并
+- **成本**：一次并行 = N 次模型调用；`synthesize` 再多一次合成调用
+
+### 20.6 参数化：阈值让用户自己改
 
 业务数值（比如转人工的金额门槛）不要写死在流程里，用 `params` 单独配：
 
@@ -1242,7 +1260,7 @@ curl -X DELETE localhost:8080/api/workflows/refund-flow
 - **参数没定义、或数值比较时参数值不是数字 → 启动即报错**
 - 走数据库时改参数同样不用重启（`POST /api/workflows` 覆盖定义）
 
-### 20.6 流程结束后继续聊同一个专业 agent
+### 20.7 流程结束后继续聊同一个专业 agent
 
 这是最常见的真实场景：律师给完分析，用户接着问「那仲裁申请书怎么写？」
 
@@ -1259,7 +1277,7 @@ curl -X DELETE localhost:8080/api/workflows/refund-flow
 
 **转人工这类固定 agent 不会 sticky**，否则用户每次追问都只收到「已为您转接人工」这一句。
 
-### 20.7 演示：大额案件转人工
+### 20.8 演示：大额案件转人工
 
 内置的法律咨询流程就是一个完整例子：
 
@@ -1286,7 +1304,7 @@ steps:
 注意 `amount` 在 agent 配置里是**可选槽位**——不填不影响收集完成，
 只是条件判为 false 走普通分支。
 
-### 20.8 已知限制
+### 20.9 已知限制
 
 - **流式**：工作流涉及多步编排，`/stream` 接口目前整段推送，不逐字。
   单 agent 路径（不挂工作流）仍然逐字流式。
@@ -1294,3 +1312,58 @@ steps:
   如果你需要"结束后继续和同一个专业 agent 聊"，得再加一个"停留"步骤类型。
 - **数据库变更的生效延迟**：其它实例最多 `db-cache-ttl-ms`（默认 10 秒）后才看到新流程。
   要立即生效可以调小 TTL，或手动调用一次 `WorkflowRegistry.refresh()`。
+
+## 21. 会话历史与人工交接
+
+AI 接待 → 转人工 → 人工再转给另一个坐席，**全程同一个 sessionId**，历史不丢。
+
+### 21.1 接口
+
+| 接口 | 作用 |
+|---|---|
+| `GET /api/sessions/{id}` | 读完整会话：消息、已收集槽位、当前负责的 agent |
+| `POST /api/sessions/{id}/handoff` | 转人工，body `{operator, note?}` |
+| `POST /api/sessions/{id}/messages` | 人工坐席发言，body `{text, operator?}` |
+| `POST /api/sessions/{id}/resume` | 交回 AI |
+
+```bash
+# 新坐席接手：先拉历史
+curl localhost:8080/api/sessions/u1
+
+# 转人工
+curl -X POST localhost:8080/api/sessions/u1/handoff   -H 'Content-Type: application/json'   -d '{"operator":"张三","note":"用户坚持要人工"}'
+```
+
+返回里带 `messages`（完整历史）、`slots`（已收集信息）、`currentAgent`（当前负责的专业 agent）。
+**新坐席接手时拉一次就够，不用问用户重复案情。**
+
+### 21.2 转人工后 AI 的行为
+
+**AI 完全静默。**
+
+```json
+{ "answer": null, "sessionId": "u1", "status": "waiting_human" }
+```
+
+用户消息仍然入库（坐席能看到），但 AI 不回复——避免「AI 和人工同时回话，用户收到两套说法」。
+
+### 21.3 消息归属
+
+人工发的话会带前缀存进去：
+
+```
+【人工客服 张三】您好，我是张三，正在帮您核对订单信息
+```
+
+这样 AI 交回后再看历史，能分清哪些是人工说的、不会把坐席的判断当成自己说的。
+
+### 21.4 内部状态不外露
+
+工作流/分派用的 `__` 前缀槽位（`__wf_step`、`__scenario` 等）不会出现在接口返回里，
+坐席只看业务槽位和 `currentAgent`。
+
+### 21.5 已知限制
+
+- **没有坐席身份认证**：`operator` 只是字符串，谁都能传任意名字。接入真实坐席系统时要在网关层鉴权
+- **没有实时推送**：新消息要靠轮询或自己接 WebSocket
+- **AI 建议模式未做**：转人工期间 AI 不会生成「建议回复」给坐席参考

@@ -19,6 +19,8 @@ public final class Session {
     private final List<ChatMessage> messages = new ArrayList<>();
     private final Map<String, Object> slots = new LinkedHashMap<>();
     private String summary;
+    /** 当前接待者：ai:<agentId> 或 human:<坐席名>；为空表示沿用默认（AI）。 */
+    private String operator;
     private long updatedAt;
 
     public Session(String id, String agentId) {
@@ -29,6 +31,11 @@ public final class Session {
 
     public Session(String id, String agentId, List<ChatMessage> messages, String summary,
                    Map<String, Object> slots, long updatedAt) {
+        this(id, agentId, messages, summary, slots, updatedAt, null);
+    }
+
+    public Session(String id, String agentId, List<ChatMessage> messages, String summary,
+                   Map<String, Object> slots, long updatedAt, String operator) {
         this.id = id;
         this.agentId = agentId;
         if (messages != null) {
@@ -38,6 +45,7 @@ public final class Session {
             this.slots.putAll(slots);
         }
         this.summary = summary;
+        this.operator = operator;
         this.updatedAt = updatedAt > 0 ? updatedAt : System.currentTimeMillis();
     }
 
@@ -100,8 +108,22 @@ public final class Session {
         return value == null ? "" : String.valueOf(value);
     }
 
+    public String operator() {
+        return operator;
+    }
+
+    public void setOperator(String operator) {
+        this.operator = operator;
+        touch();
+    }
+
+    /** 当前是否由人工接待。 */
+    public boolean handledByHuman() {
+        return operator != null && operator.startsWith("human:");
+    }
+
     public Session copy() {
-        return new Session(id, agentId, messages, summary, slots, updatedAt);
+        return new Session(id, agentId, messages, summary, slots, updatedAt, operator);
     }
 
     private void touch() {

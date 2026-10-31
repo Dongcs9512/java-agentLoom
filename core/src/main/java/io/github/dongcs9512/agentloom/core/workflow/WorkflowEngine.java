@@ -28,6 +28,17 @@ public final class WorkflowEngine {
     /** 单轮最多推进多少步，防止条件写错导致循环跳转。 */
     private static final int MAX_STEPS_PER_TURN = 20;
 
+    /** 换行符常量：避免源码里写转义字符出错。 */
+    private static final String NL = System.lineSeparator();
+
+    /** 并行分支用的线程池：模型调用是 IO 等待，线程数不跟 CPU 绑定。 */
+    private static final java.util.concurrent.ExecutorService PARALLEL_POOL =
+            java.util.concurrent.Executors.newFixedThreadPool(8, runnable -> {
+                Thread thread = new Thread(runnable, "agentloom-workflow-parallel");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     public WorkflowResult step(WorkflowDefinition definition, Session session, String userMessage,
                                WorkflowHost host) {
         String stepId = session.slot(SLOT_STEP);
@@ -103,6 +114,18 @@ public final class WorkflowEngine {
                     }
                     return new WorkflowResult(answer, step.id(), true, trace);
                 }
+                case PARALLEL -> {
+                    if (step.agents().isEmpty()) {
+                        reset(session);
+                        return new WorkflowResult("流程配置有误：并行步骤没有配置 agents", step.id(), true, trace);
+                    }
+                    String task = pendingMessage == null ? buildTask(session) : pendingMessage;
+                    String merged = runParallel(step, session, task, host);
+                    trace.add("parallel:" + String.join(",", step.agents()));
+                    reset(session);
+                    session.putSlot(SLOT_DONE, "false");
+                    return new WorkflowResult(merged, step.id(), true, trace);
+                }
                 case CONDITION -> {
                     boolean matched = Condition.parse(step.when()).evaluate(session.slots(), definition.params());
                     String target = matched ? step.then() : step.otherwise();
@@ -117,6 +140,52 @@ public final class WorkflowEngine {
         }
         throw new IllegalStateException("工作流 " + definition.id()
                 + " 单轮推进步骤过多，请检查条件步骤是否形成循环跳转");
+    }
+
+    /**
+     * 并行跑多个 agent 再合并。
+     *
+     * <p>每个分支用会话副本执行——分支之间共享同一个 Session 会并发修改消息列表，
+     * 而且并行分支不该改动收集到的槽位。
+     */
+    private String runParallel(WorkflowStep step, Session session, String task, WorkflowHost host) {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS
+                .toNanos(step.timeoutMillisOrDefault());
+        List<java.util.concurrent.CompletableFuture<String[]>> futures = new ArrayList<>();
+        for (String agentId : step.agents()) {
+            Session branch = session.copy();
+            futures.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return new String[]{agentId, host.chat(agentId, branch, task)};
+                } catch (RuntimeException e) {
+                    return new String[]{agentId, "（该方向分析失败：" + e.getMessage() + "）"};
+                }
+            }, PARALLEL_POOL));
+        }
+
+        StringBuilder combined = new StringBuilder();
+        for (java.util.concurrent.CompletableFuture<String[]> future : futures) {
+            String[] result;
+            try {
+                long remaining = Math.max(1, deadline - System.nanoTime());
+                result = future.get(remaining, java.util.concurrent.TimeUnit.NANOSECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                future.cancel(true);
+                combined.append("（某个方向分析超时）").append(NL).append(NL);
+                continue;
+            } catch (Exception e) {
+                combined.append("（某个方向分析失败）").append(NL).append(NL);
+                continue;
+            }
+            combined.append("【").append(result[0]).append("】").append(NL)
+                    .append(result[1]).append(NL).append(NL);
+        }
+
+        if ("synthesize".equals(step.mergeOrDefault())) {
+            return host.combine("以下是多位专业律师从不同角度的分析，请综合成一段给用户的回答，"
+                    + "保留关键结论、去掉重复内容，不要提及某位律师这种说法：" + NL + NL + combined);
+        }
+        return combined.toString().trim();
     }
 
     /** 流程结束后清空状态，下一条用户消息重新从头开始。 */

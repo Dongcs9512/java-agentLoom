@@ -8,5 +8,7 @@ public enum StepType {
     /** 调用：跑指定 agent（或分派结果），产出最终回答 */
     CALL,
     /** 条件分支：按槽位取值决定跳到哪个步骤 */
-    CONDITION
+    CONDITION,
+    /** 并行：把同一份案情同时发给多个 agent，再合并结果 */
+    PARALLEL
 }

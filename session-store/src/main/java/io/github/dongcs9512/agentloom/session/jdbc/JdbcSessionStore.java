@@ -32,7 +32,13 @@ public final class JdbcSessionStore implements SessionStore {
         try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
             st.execute("CREATE TABLE IF NOT EXISTS chat_session (" +
                     "id VARCHAR(64) PRIMARY KEY, agent_id VARCHAR(64), summary TEXT, " +
-                    "slots TEXT, updated_at BIGINT)");
+                    "slots TEXT, updated_at BIGINT, operator VARCHAR(64))");
+            // 老库补列；已存在则忽略
+            try (Statement alter = c.createStatement()) {
+                alter.execute("ALTER TABLE chat_session ADD COLUMN operator VARCHAR(64)");
+            } catch (SQLException ignored) {
+                // 列已存在
+            }
             st.execute("CREATE TABLE IF NOT EXISTS chat_message (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, session_id VARCHAR(64), seq INT, payload TEXT)");
         } catch (SQLException e) {
@@ -48,12 +54,14 @@ public final class JdbcSessionStore implements SessionStore {
                 del.executeUpdate();
             }
             try (PreparedStatement ins = c.prepareStatement(
-                    "INSERT INTO chat_session (id, agent_id, summary, slots, updated_at) VALUES (?, ?, ?, ?, ?)")) {
+                    "INSERT INTO chat_session (id, agent_id, summary, slots, updated_at, operator) "
+                            + "VALUES (?, ?, ?, ?, ?, ?)")) {
                 ins.setString(1, session.id());
                 ins.setString(2, session.agentId());
                 ins.setString(3, session.summary());
                 ins.setString(4, SessionSerializer.slotsToJson(session.slots()));
                 ins.setLong(5, session.updatedAt());
+                ins.setString(6, session.operator());
                 ins.executeUpdate();
             }
 
@@ -83,10 +91,11 @@ public final class JdbcSessionStore implements SessionStore {
             String summary = null;
             String agentId = null;
             String slotsJson = null;
+            String operator = null;
             long updatedAt = 0;
             boolean found = false;
             try (PreparedStatement ps = c.prepareStatement(
-                    "SELECT agent_id, summary, slots, updated_at FROM chat_session WHERE id = ?")) {
+                    "SELECT agent_id, summary, slots, updated_at, operator FROM chat_session WHERE id = ?")) {
                 ps.setString(1, sessionId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
@@ -95,6 +104,7 @@ public final class JdbcSessionStore implements SessionStore {
                         summary = rs.getString("summary");
                         slotsJson = rs.getString("slots");
                         updatedAt = rs.getLong("updated_at");
+                        operator = rs.getString("operator");
                     }
                 }
             }
@@ -113,7 +123,7 @@ public final class JdbcSessionStore implements SessionStore {
                 }
             }
             return Optional.of(new Session(sessionId, agentId, messages, summary,
-                    SessionSerializer.slotsFromJson(slotsJson), updatedAt));
+                    SessionSerializer.slotsFromJson(slotsJson), updatedAt, operator));
         } catch (SQLException e) {
             throw new IllegalStateException("加载会话失败", e);
         }

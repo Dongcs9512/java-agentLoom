@@ -25,6 +25,7 @@ public final class RedisSessionStore implements SessionStore, AutoCloseable {
     private static final byte[] F_SLOTS = bytes("slots");
     private static final byte[] F_MESSAGES = bytes("messages");
     private static final byte[] F_UPDATED_AT = bytes("updatedAt");
+    private static final byte[] F_OPERATOR = bytes("operator");
 
     private final JedisPool pool;
     private final boolean ownsPool;
@@ -55,6 +56,7 @@ public final class RedisSessionStore implements SessionStore, AutoCloseable {
         hash.put(F_SLOTS, bytes(SessionSerializer.slotsToJson(session.slots())));
         hash.put(F_MESSAGES, bytes(SessionSerializer.messagesToJson(session.messages())));
         hash.put(F_UPDATED_AT, bytes(String.valueOf(session.updatedAt())));
+        hash.put(F_OPERATOR, bytes(session.operator() == null ? "" : session.operator()));
 
         byte[] key = key(session.id());
         try (Jedis jedis = pool.getResource()) {
@@ -81,13 +83,16 @@ public final class RedisSessionStore implements SessionStore, AutoCloseable {
         String summary = str(byName.get("summary"));
         String updatedAt = str(byName.get("updatedat"));
 
+        String operator = str(byName.get("operator"));
+
         return Optional.of(new Session(
                 sessionId,
                 agentId,
                 SessionSerializer.messagesFromJson(str(byName.get("messages"))),
                 summary == null || summary.isBlank() ? null : summary,
                 SessionSerializer.slotsFromJson(str(byName.get("slots"))),
-                updatedAt == null || updatedAt.isBlank() ? 0 : Long.parseLong(updatedAt)));
+                updatedAt == null || updatedAt.isBlank() ? 0 : Long.parseLong(updatedAt),
+                operator == null || operator.isBlank() ? null : operator));
     }
 
     @Override

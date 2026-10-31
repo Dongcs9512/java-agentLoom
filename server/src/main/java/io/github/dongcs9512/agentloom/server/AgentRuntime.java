@@ -99,6 +99,10 @@ public final class AgentRuntime {
     // ---------- 多轮会话 ----------
 
     public ChatReply chat(String agentId, String sessionId, String userMessage) {
+        ChatReply waiting = recordOnlyIfHumanHandled(sessionId, userMessage);
+        if (waiting != null) {
+            return waiting;
+        }
         WorkflowDefinition workflow = workflowLookup.apply(agentId);
         // 并发闸门：模型调用是最贵的资源，饱和时快速失败比全部拖到超时好
         return guardChain.execute(new GuardContext(agentId),
@@ -106,6 +110,25 @@ public final class AgentRuntime {
                         () -> workflow == null
                                 ? doChat(agentId, sessionId, userMessage)
                                 : doWorkflowChat(workflow, sessionId, userMessage)));
+    }
+
+    /**
+     * 会话已由人工接管时，AI 不再回复：只把用户消息记进会话，等坐席处理。
+     *
+     * @return 需要直接返回给调用方的结果；为 null 表示继续走 AI
+     */
+    private ChatReply recordOnlyIfHumanHandled(String sessionId, String userMessage) {
+        if (!sessionSupport.hasSession() || sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        Session session = sessionSupport.store().load(sessionId).orElse(null);
+        if (session == null || !session.handledByHuman()) {
+            return null;
+        }
+        session.addMessage(ChatMessage.user(userMessage));
+        sessionSupport.store().save(session);
+        metrics.count("agentloom.handoff.waiting", Map.of("agent", session.agentId()));
+        return ChatReply.waitingHuman(sessionId);
     }
 
     /**
@@ -134,6 +157,12 @@ public final class AgentRuntime {
                 AgentConfig config = loadAgent(targetAgentId);
                 boolean collecting = targetAgentId.equals(workflow.entryAgent());
                 return runAgentTurn(config, targetSession, message, collecting);
+            }
+
+            @Override
+            public String combine(String instruction) {
+                // 用一个通用 agent 把多份并行结果合成一段话（不收集新信息）
+                return runAgentTurn(loadAgent(workflow.entryAgent()), session, instruction, false);
             }
 
             @Override
@@ -183,6 +212,9 @@ public final class AgentRuntime {
     }
 
     public void streamChat(String agentId, String sessionId, String userMessage, Consumer<String> onDelta) {
+        if (recordOnlyIfHumanHandled(sessionId, userMessage) != null) {
+            return;
+        }
         WorkflowDefinition workflow = workflowLookup.apply(agentId);
         if (workflow != null) {
             // 工作流涉及多步编排，v1 整段推送；逐字流式只在单 agent 路径支持

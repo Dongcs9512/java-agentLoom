@@ -55,6 +55,9 @@ public record WorkflowDefinition(String id, String entryAgent, Map<String, Strin
             if (step.type() == StepType.CALL && (step.agent() == null || step.agent().isBlank())) {
                 throw new IllegalArgumentException("工作流 " + id + " 的步骤 " + step.id() + " 缺少 agent");
             }
+            if (step.type() == StepType.PARALLEL && step.agents().isEmpty()) {
+                throw new IllegalArgumentException("工作流 " + id + " 的步骤 " + step.id() + " 没有配置 agents");
+            }
             if (step.type() == StepType.COLLECT && step.slots().isEmpty()) {
                 throw new IllegalArgumentException("工作流 " + id + " 的步骤 " + step.id() + " 没有配置槽位");
             }

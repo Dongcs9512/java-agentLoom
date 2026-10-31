@@ -15,4 +15,10 @@ public interface WorkflowHost {
 
     /** 按会话当前内容判断该交给哪个专业 agent。 */
     Optional<String> route(Session session);
+
+    /**
+     * 把多份并行结果合成一段回答（merge=synthesize 时调用）。
+     * 实现方通常用一个通用 agent 做汇总，不涉及新信息收集。
+     */
+    String combine(String instruction);
 }
